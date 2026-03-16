@@ -1,0 +1,28 @@
+{
+    "name": "@coderline/alphatab-realtime-editor",
+    "version": "1.9.0",
+    "description": "Realtime AlphaTex editor and preview workbench for alphaTab",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "@coderline/alphatab": "*",
+        "@coderline/alphatab-language-server": "*",
+        "@coderline/alphatab-monaco": "*",
+        "@fontsource/noto-sans": "^5.2.10",
+        "@fontsource/noto-serif": "^5.2.9",
+        "monaco-editor": "^0.55.1",
+        "serve-static": "^2.2.1",
+        "split.js": "^1.6.5"
+    },
+    "scripts": {
+        "lint": "biome lint",
+        "typecheck": "tsc --noEmit",
+        "dev": "vite",
+        "build": "vite build"
+    },
+    "devDependencies": {
+        "tslib": "^2.8.1",
+        "typescript": "^5.9.3",
+        "vite": "^7.3.1"
+    }
+}
