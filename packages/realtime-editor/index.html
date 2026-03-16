@@ -5,9 +5,48 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>alphaTab Realtime Editor</title>
+
+    <!-- 内联关键 CSS：阻止白屏，在外部 CSS 加载前立即生效 -->
+    <style>
+        html, body {
+            margin: 0;
+            min-height: 100%;
+            background: linear-gradient(145deg, #050711 0%, #07101d 48%, #03050d 100%);
+            color: #f7f2e8;
+        }
+        /* 主界面初始隐藏，等 JS 初始化完成后渐入 */
+        .app-shell { opacity: 0; transition: opacity 0.3s ease; }
+        .app-shell.is-ready { opacity: 1; }
+        /* Loading Overlay */
+        .app-loading {
+            position: fixed; inset: 0; z-index: 9999;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+            background: linear-gradient(145deg, #050711 0%, #07101d 48%, #03050d 100%);
+        }
+        .app-loading__spinner {
+            width: 36px; height: 36px;
+            border: 3px solid rgba(141,216,255,0.15);
+            border-top-color: #8dd8ff;
+            border-radius: 50%;
+            animation: app-spin 0.8s linear infinite;
+        }
+        .app-loading__text {
+            font-family: system-ui, -apple-system, sans-serif;
+            font-size: 14px;
+            color: rgba(247,242,232,0.55);
+            letter-spacing: 0.04em;
+        }
+        @keyframes app-spin { to { transform: rotate(360deg); } }
+    </style>
 </head>
 
 <body>
+    <!-- Loading Overlay：在 JS/CSS 加载期间为用户提供视觉反馈 -->
+    <div class="app-loading" id="appLoading">
+        <div class="app-loading__spinner"></div>
+        <span class="app-loading__text">正在加载编辑器…</span>
+    </div>
+
     <div class="app-shell" id="appShell">
         <div class="app-shell__backdrop" aria-hidden="true"></div>
 
@@ -146,66 +185,66 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- ═══ Transport — 归属预览面板 ═══ -->
+                <footer class="transport">
+                    <div class="transport__left">
+                        <button class="transport__button transport__button--primary" id="playPauseButton" type="button" disabled>▶ 播放</button>
+                        <button class="transport__button" id="stopButton" type="button" disabled>■ 停止</button>
+                        <span class="transport__time" id="timeLabel">00:00 / 00:00</span>
+                    </div>
+
+                    <div class="transport__center">
+                        <div class="timeline" id="timeline" role="slider" aria-label="播放进度" tabindex="0">
+                            <div class="timeline__value" id="timelineValue"></div>
+                        </div>
+                    </div>
+
+                    <div class="transport__right">
+                        <label class="toolbar-field toolbar-field--dark">
+                            <span>速度</span>
+                            <select id="speedSelect">
+                                <option value="0.5">0.5x</option>
+                                <option value="0.75">0.75x</option>
+                                <option value="1" selected>1x</option>
+                                <option value="1.25">1.25x</option>
+                                <option value="1.5">1.5x</option>
+                            </select>
+                        </label>
+
+                        <label class="toolbar-field toolbar-field--dark">
+                            <span>缩放</span>
+                            <select id="zoomSelect">
+                                <option value="75">75%</option>
+                                <option value="90">90%</option>
+                                <option value="100" selected>100%</option>
+                                <option value="125">125%</option>
+                                <option value="150">150%</option>
+                            </select>
+                        </label>
+
+                        <label class="toolbar-field toolbar-field--dark">
+                            <span>布局</span>
+                            <select id="layoutSelect">
+                                <option value="parchment" selected>Parchment</option>
+                                <option value="page">Page</option>
+                                <option value="horizontal">Horizontal</option>
+                            </select>
+                        </label>
+
+                        <label class="toolbar-field toolbar-field--dark">
+                            <span>滚动</span>
+                            <select id="scrollSelect">
+                                <option value="continuous" selected>Continuous</option>
+                                <option value="off">关闭</option>
+                                <option value="offscreen">OffScreen</option>
+                                <option value="smooth">Smooth</option>
+                            </select>
+                        </label>
+                    </div>
+                </footer>
             </section>
         </main>
-
-        <!-- ═══ Transport ═══ -->
-        <footer class="transport">
-            <div class="transport__left">
-                <button class="transport__button transport__button--primary" id="playPauseButton" type="button" disabled>▶ 播放</button>
-                <button class="transport__button" id="stopButton" type="button" disabled>■ 停止</button>
-                <span class="transport__time" id="timeLabel">00:00 / 00:00</span>
-            </div>
-
-            <div class="transport__center">
-                <div class="timeline" id="timeline" role="slider" aria-label="播放进度" tabindex="0">
-                    <div class="timeline__value" id="timelineValue"></div>
-                </div>
-            </div>
-
-            <div class="transport__right">
-                <label class="toolbar-field toolbar-field--dark">
-                    <span>速度</span>
-                    <select id="speedSelect">
-                        <option value="0.5">0.5x</option>
-                        <option value="0.75">0.75x</option>
-                        <option value="1" selected>1x</option>
-                        <option value="1.25">1.25x</option>
-                        <option value="1.5">1.5x</option>
-                    </select>
-                </label>
-
-                <label class="toolbar-field toolbar-field--dark">
-                    <span>缩放</span>
-                    <select id="zoomSelect">
-                        <option value="75">75%</option>
-                        <option value="90">90%</option>
-                        <option value="100" selected>100%</option>
-                        <option value="125">125%</option>
-                        <option value="150">150%</option>
-                    </select>
-                </label>
-
-                <label class="toolbar-field toolbar-field--dark">
-                    <span>布局</span>
-                    <select id="layoutSelect">
-                        <option value="parchment" selected>Parchment</option>
-                        <option value="page">Page</option>
-                        <option value="horizontal">Horizontal</option>
-                    </select>
-                </label>
-
-                <label class="toolbar-field toolbar-field--dark">
-                    <span>滚动</span>
-                    <select id="scrollSelect">
-                        <option value="off" selected>关闭</option>
-                        <option value="continuous">Continuous</option>
-                        <option value="offscreen">OffScreen</option>
-                        <option value="smooth">Smooth</option>
-                    </select>
-                </label>
-            </div>
-        </footer>
     </div>
 
     <script type="module" src="./src/main.ts"></script>

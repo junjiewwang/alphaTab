@@ -23,7 +23,7 @@ export function setupPreview(): void {
             scrollElement: dom.previewViewport,
             enableCursor: true,
             enableUserInteraction: true,
-            scrollMode: alphaTab.ScrollMode.Off
+            scrollMode: alphaTab.ScrollMode.Continuous
         }
     } satisfies alphaTab.json.SettingsJson);
 

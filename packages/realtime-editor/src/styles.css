@@ -74,10 +74,17 @@ input {
 .app-shell {
     position: relative;
     display: grid;
-    grid-template-rows: auto auto 1fr auto;
+    grid-template-rows: auto 1fr;
     gap: 10px;
     height: 100vh;
     padding: 14px;
+    /* 初始隐藏，由 JS 添加 .is-ready 后渐入 */
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.app-shell.is-ready {
+    opacity: 1;
 }
 
 .app-shell__backdrop {
@@ -95,7 +102,6 @@ input {
     z-index: 10;
 }
 
-.transport,
 .workspace {
     position: relative;
     z-index: 1;
@@ -538,6 +544,7 @@ input {
    ═══════════════════════════════════════════════════════════ */
 
 .panel {
+    flex: 1;
     min-width: 0;
     min-height: 0;
     display: grid;
@@ -574,6 +581,7 @@ input {
 }
 
 .editor-surface {
+    overflow: hidden;
     background: linear-gradient(180deg, rgba(7, 11, 22, 0.9), rgba(6, 8, 20, 1));
 }
 
@@ -698,6 +706,7 @@ input {
     grid-template-columns: auto minmax(0, 1fr);
     gap: 12px;
     padding: 12px;
+    overflow: hidden;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -821,6 +830,9 @@ input {
 .preview-card {
     position: relative;
     min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     border-radius: 20px;
     background: linear-gradient(180deg, rgba(249, 243, 232, 0.98), rgba(243, 233, 217, 0.96));
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -857,7 +869,8 @@ input {
 }
 
 .preview-card__scroller {
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     overflow: auto;
     padding: 24px 22px 36px;
 }
@@ -872,7 +885,7 @@ input {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Transport — 优化布局
+   Transport — 内嵌于预览面板底部
    ═══════════════════════════════════════════════════════════ */
 
 .transport {
@@ -880,7 +893,9 @@ input {
     grid-template-columns: auto 1fr auto;
     gap: 14px;
     align-items: center;
-    padding: 0 14px 10px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent);
 }
 
 .transport > * {
@@ -958,6 +973,27 @@ input {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   Player Cursor — 播放指示线 & 高亮
+   ═══════════════════════════════════════════════════════════ */
+
+/* 小节高亮背景 */
+.at-cursor-bar {
+    background: rgba(141, 216, 255, 0.12) !important;
+}
+
+/* 节拍指示线 — 金色竖线 */
+.at-cursor-beat {
+    background: #f1b75e !important;
+    opacity: 0.9;
+    box-shadow: 0 0 8px rgba(241, 183, 94, 0.5);
+}
+
+/* 当前播放音符高亮 */
+.at-highlight * {
+    fill: #f1b75e !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
    Animations
    ═══════════════════════════════════════════════════════════ */
 
@@ -1021,5 +1057,11 @@ input {
 
     .transport {
         grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .transport__right {
+        flex-wrap: wrap;
+        gap: 6px;
     }
 }

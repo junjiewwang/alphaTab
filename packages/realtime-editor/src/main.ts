@@ -44,9 +44,33 @@ async function initialize(): Promise<void> {
 
         setViewMode((readStorage(STORAGE_KEYS.view) as ViewMode | null) ?? 'split');
         loadInitialDocument();
+
+        // 初始化完成：移除 loading overlay，渐入显示主界面
+        dismissLoading();
     } catch (error) {
         setStatus('error', '初始化失败', getErrorMessage(error));
         dom.diagnosticsList.innerHTML = `<li data-severity="error">${escapeHtml(getErrorMessage(error))}</li>`;
+
+        // 即使初始化失败也显示界面，让用户看到错误信息
+        dismissLoading();
+    }
+}
+
+/** 移除 loading overlay 并渐入显示主界面 */
+function dismissLoading(): void {
+    const loading = document.getElementById('appLoading');
+    const shell = document.getElementById('appShell');
+
+    // 先让主界面渐入
+    shell?.classList.add('is-ready');
+
+    // loading overlay 淡出后移除 DOM
+    if (loading) {
+        loading.style.transition = 'opacity 0.3s ease';
+        loading.style.opacity = '0';
+        loading.addEventListener('transitionend', () => loading.remove(), { once: true });
+        // 兜底：如果 transitionend 未触发，400ms 后强制移除
+        setTimeout(() => loading.remove(), 400);
     }
 }
 
