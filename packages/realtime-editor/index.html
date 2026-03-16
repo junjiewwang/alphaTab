@@ -11,91 +11,103 @@
     <div class="app-shell" id="appShell">
         <div class="app-shell__backdrop" aria-hidden="true"></div>
 
+        <!-- ═══ Topbar：紧凑单行，三组功能分隔 ═══ -->
         <header class="topbar">
-            <div class="brand-block">
-                <p class="brand-block__eyebrow">alphaTab workbench</p>
-                <h1>Realtime Editor</h1>
-                <p class="brand-block__summary">左侧编写 AlphaTex，右侧实时渲染并可直接试听。</p>
-            </div>
-
-            <div class="topbar__meta">
+            <div class="topbar__brand">
+                <h1 class="topbar__title">Realtime Editor</h1>
                 <span class="status-pill" id="statusPill" data-tone="muted">等待初始化</span>
-                <div class="score-meta">
-                    <strong id="scoreTitle">未命名工作区</strong>
-                    <span id="scoreSubtitle">准备加载 AlphaTex 示例</span>
-                </div>
             </div>
 
-            <div class="toolbar-cluster">
+            <nav class="topbar__actions">
+                <!-- 文件操作组 -->
                 <div class="toolbar-group">
                     <button class="toolbar-button" id="newDocumentButton" type="button">新建</button>
                     <button class="toolbar-button" id="openFileButton" type="button">打开文件</button>
-                    <button class="toolbar-button toolbar-button--ghost" id="downloadAlphaTexButton" type="button">导出 AlphaTex</button>
+                    <button class="toolbar-button toolbar-button--ghost" id="downloadAlphaTexButton" type="button">导出</button>
                     <button class="toolbar-button toolbar-button--ghost" id="printButton" type="button">打印</button>
                     <input id="fileInput" type="file" hidden accept=".gp,.gp3,.gp4,.gp5,.gpx,.gp7,.gp8,.xml,.musicxml,.mxl,.txt,.alphatex,.atx" />
                 </div>
 
-                <div class="toolbar-group toolbar-group--compact">
-                    <label class="toolbar-field">
-                        <span>示例</span>
-                        <select id="exampleSelect">
-                            <option value="overture">序章动机</option>
-                            <option value="fingerstyle">指弹片段</option>
-                            <option value="swing">Swing 练习</option>
-                        </select>
-                    </label>
-                </div>
+                <span class="toolbar-divider" aria-hidden="true"></span>
 
+                <!-- 示例选择（内联风格，与按钮等高） -->
+                <select class="toolbar-select" id="exampleSelect" title="加载预置示例">
+                    <option value="overture">序章动机</option>
+                    <option value="fingerstyle">指弹片段</option>
+                    <option value="swing">Swing 练习</option>
+                </select>
+
+                <span class="toolbar-divider" aria-hidden="true"></span>
+
+                <!-- 视图模式组 -->
                 <div class="segmented" aria-label="视图模式">
                     <button class="segmented__button is-active" data-view="split" type="button">拆分</button>
                     <button class="segmented__button" data-view="editor" type="button">仅编辑</button>
                     <button class="segmented__button" data-view="preview" type="button">仅预览</button>
                 </div>
-            </div>
+            </nav>
         </header>
 
+        <!-- ═══ Workspace ═══ -->
         <main class="workspace" id="workspace" data-view="split">
+            <!-- ── 编辑器面板 ── -->
             <section class="panel panel--editor" id="editorPane" aria-label="AlphaTex 编辑器">
                 <div class="panel__header">
                     <div>
                         <p class="panel__eyebrow">Script</p>
                         <h2>AlphaTex 编辑器</h2>
                     </div>
-                    <span class="panel__hint">支持语法高亮、诊断与实时预览</span>
+                    <div class="panel__meta">
+                        <strong id="scoreTitle">未命名工作区</strong>
+                        <span id="scoreSubtitle">准备加载 AlphaTex 示例</span>
+                    </div>
                 </div>
 
                 <div class="editor-surface">
                     <div id="editor"></div>
                 </div>
 
+                <!-- 可折叠诊断面板 -->
                 <section class="diagnostics-panel" aria-live="polite">
-                    <div class="diagnostics-panel__header">
+                    <button class="diagnostics-panel__toggle" id="diagnosticsToggle" type="button" aria-expanded="true" data-count="0">
                         <strong>诊断</strong>
-                        <span id="diagnosticCount">0</span>
+                        <span class="diagnostics-panel__badge" id="diagnosticCount">0</span>
+                        <svg class="diagnostics-panel__chevron" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                            <path d="M4 5.5L7 8.5L10 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                    <div class="diagnostics-panel__body">
+                        <ul class="diagnostics-list" id="diagnosticsList">
+                            <li class="diagnostics-list__empty">初始化完成后会在这里显示错误和警告。</li>
+                        </ul>
                     </div>
-                    <ul class="diagnostics-list" id="diagnosticsList">
-                        <li class="diagnostics-list__empty">初始化完成后会在这里显示错误和警告。</li>
-                    </ul>
                 </section>
             </section>
 
+            <!-- ── 预览面板 ── -->
             <section class="panel panel--preview" id="previewPane" aria-label="实时预览">
                 <div class="panel__header panel__header--preview">
                     <div>
                         <p class="panel__eyebrow">Preview</p>
                         <h2>实时乐谱预览</h2>
                     </div>
-                    <span class="panel__hint" id="previewSummary">将保持上次成功渲染结果，避免编辑抖动</span>
+                    <span class="panel__hint" id="previewSummary">将保持上次成功渲染结果</span>
                 </div>
 
                 <div class="preview-stage">
+                    <!-- 可折叠轨道面板 -->
                     <aside class="track-dock">
-                        <div class="track-dock__header">
+                        <button class="track-dock__toggle" id="trackDockToggle" type="button" aria-expanded="true">
                             <strong>轨道</strong>
-                            <span id="trackCount">0</span>
-                        </div>
-                        <div class="track-dock__list" id="trackList">
-                            <p class="track-dock__empty">等待乐谱加载</p>
+                            <span class="track-dock__badge" id="trackCount">0</span>
+                            <svg class="track-dock__chevron" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <path d="M4 5.5L7 8.5L10 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                        <div class="track-dock__body">
+                            <div class="track-dock__list" id="trackList">
+                                <p class="track-dock__empty">等待乐谱加载</p>
+                            </div>
                         </div>
                     </aside>
 
@@ -113,6 +125,7 @@
             </section>
         </main>
 
+        <!-- ═══ Transport ═══ -->
         <footer class="transport">
             <div class="transport__left">
                 <button class="transport__button transport__button--primary" id="playPauseButton" type="button" disabled>▶ 播放</button>

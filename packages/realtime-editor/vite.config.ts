@@ -44,5 +44,31 @@ export default defineConfig({
     plugins: [tsconfigPaths(), realtimeEditorAssets()],
     server: {
         open: '/'
+    },
+    build: {
+        rollupOptions: {
+            output: {
+                manualChunks(id) {
+                    // Monaco Editor 核心（约 2MB+）
+                    if (id.includes('monaco-editor') || id.includes('vscode-')) {
+                        return 'vendor-monaco';
+                    }
+                    // alphaTab 核心引擎（乐谱解析、渲染、播放）
+                    if (
+                        id.includes('/packages/alphatab/') ||
+                        id.includes('/packages/lsp/') ||
+                        id.includes('/packages/monaco/') ||
+                        id.includes('/packages/alphatex/')
+                    ) {
+                        return 'vendor-alphatab';
+                    }
+                    // 字体资源
+                    if (id.includes('@fontsource/')) {
+                        return 'vendor-fonts';
+                    }
+                    return undefined;
+                }
+            }
+        }
     }
 });

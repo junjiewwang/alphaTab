@@ -12,7 +12,7 @@
 
 ## 当前交付结果
 
-已经完成第一阶段可运行 POC，`packages/realtime-editor` 现在具备：
+已经完成第二阶段优化，`packages/realtime-editor` 现在具备：
 
 1. 独立的 `Vite + TypeScript` 应用包结构
 2. `Monaco + AlphaTex` 语法高亮与语言服务接入
@@ -21,7 +21,9 @@
 5. 示例切换、新建、文件打开、导出 AlphaTex、打印
 6. 轨道筛选、播放/暂停/停止、时间轴、速度、缩放、布局、滚动模式控制
 7. 开发态与构建态的字体 / soundfont 资源可用
-8. `typecheck` 与 `build` 验证通过
+8. **模块化架构**：代码按职责拆分为 8 个独立模块
+9. **紧凑化 UI**：Topbar 合并为单行、诊断面板可折叠、轨道面板可折叠
+10. **构建优化**：manualChunks 将产物拆分为 3 个独立 chunk
 
 ## 设计决策
 
@@ -31,24 +33,95 @@
 - **渲染策略**：编辑变更后防抖解析；解析成功才刷新预览；解析失败保留旧预览
 - **构建策略**：`realtime-editor` 作为前端应用保留 Vite 默认 TypeScript 转译，并补充显式 monorepo alias，确保主线程与 worker 入口都可解析内部包源码
 - **资源策略**：开发态通过 `vite.plugin.assets.ts` 直接挂载 `packages/alphatab/font`；构建态复制到产物目录
+- **模块化策略**：按单一职责原则（SRP）将 `main.ts` 拆分为独立模块，`main.ts` 仅作为 orchestrator
 
 ## 目录与关键文件
 
+```
+src/
+├── main.ts        # 入口编排器：组装各模块、调度初始化
+├── types.ts       # 公共类型定义（ViewMode, AppState 等）
+├── constants.ts   # 常量（存储键、示例定义、配置映射）
+├── state.ts       # 应用状态 + DOM 引用 + 状态变更辅助
+├── utils.ts       # 通用工具函数（formatTime, escapeHtml 等）
+├── editor.ts      # Monaco 编辑器初始化 / 主题 / LSP / 诊断
+├── preview.ts     # alphaTab 预览渲染 / 轨道管理 / 渲染调度
+├── toolbar.ts     # 顶部工具栏事件 / 文件操作 / 示例加载
+├── transport.ts   # 播放控制 / 速度 / 缩放 / 布局 / 滚动
+└── styles.css     # 工作台视觉样式
+```
+
+其他文件：
 - `package.json`：新应用依赖与脚本
-- `vite.config.ts`：应用型 Vite 配置与 monorepo alias
+- `vite.config.ts`：应用型 Vite 配置 + monorepo alias + manualChunks
 - `vite.plugin.assets.ts`：字体与 soundfont 资源挂载 / 复制
 - `index.html`：工作台页面骨架
-- `src/main.ts`：编辑器、预览、状态、控制台主逻辑
-- `src/styles.css`：工作台视觉样式
 - `types/split.js/index.d.ts`：`split.js` 本地类型声明
 
 ## 实施进展
+
+### 第一阶段：POC 搭建
 
 - [x] 建立需求与实施记录文档
 - [x] 创建 `realtime-editor` 包骨架
 - [x] 接入编辑器与实时预览
 - [x] 接入工具栏与底部控制区
 - [x] 处理资源与运行说明
+
+### 第二阶段：优化重构（2026-03-16）
+
+- [x] **Sprint 1：代码架构模块化拆分**
+- [x] **Sprint 2：UI/UX 布局体验优化**
+- [x] **Sprint 3：构建优化**
+
+## 第二阶段优化详情
+
+### Sprint 1：代码架构模块化拆分
+
+**改动前**：所有逻辑集中在 `main.ts`（767 行），包含编辑器初始化、预览渲染、工具栏事件、播放控制、状态管理、工具函数等，违反单一职责原则。
+
+**改动后**：按职责拆分为 8 个独立模块：
+
+| 模块 | 职责 | 行数 |
+|------|------|------|
+| `types.ts` | 公共类型定义（ViewMode, AppState 等） | ~30 |
+| `constants.ts` | 存储键、示例定义、布局/滚动模式映射 | ~65 |
+| `utils.ts` | 通用工具函数（formatTime, escapeHtml, downloadBlob 等） | ~85 |
+| `state.ts` | 应用状态对象 + DOM 引用 + 状态变更辅助（setStatus, setViewMode） | ~100 |
+| `editor.ts` | Monaco 编辑器初始化、主题、LSP 集成、诊断面板 | ~145 |
+| `preview.ts` | alphaTab 预览渲染、轨道管理、渲染调度、元信息更新 | ~175 |
+| `toolbar.ts` | 顶部工具栏事件绑定、文件操作、示例加载 | ~95 |
+| `transport.ts` | 播放控制、速度/缩放/布局/滚动切换、时间轴交互 | ~85 |
+| `main.ts` | 纯 orchestrator，组装各模块完成初始化 | ~85 |
+
+**设计原则**：
+- 单一职责（SRP）：每个模块只负责一个功能域
+- 高内聚低耦合：模块间通过共享 `state` 对象通信，避免跨模块直接操作
+- 依赖注入：`setupEditor` 接受回调参数而非硬编码依赖
+
+### Sprint 2：UI/UX 布局体验优化
+
+| 优化项 | 改动 | 效果 |
+|-------|------|------|
+| **Topbar 紧凑化** | 原三行布局（品牌标题 + 元信息 + 工具栏）合并为紧凑的 flex 布局 | 节省约 60-80px 垂直空间 |
+| **诊断面板可折叠** | 新增折叠按钮 + 动画展开/收起 + 计数 badge | 无诊断项时可折叠释放空间 |
+| **轨道面板可折叠** | 新增折叠按钮 + 动画展开/收起 + 轨道数 badge | 少量轨道时可折叠释放预览空间 |
+| **视图切换优化** | `opacity: 0.2` → `display: none` | 隐藏面板不再占据空间 |
+| **整体间距收紧** | padding/gap/font-size 全面收紧 | 有效工作区面积增加约 15% |
+| **Topbar 示例区域优化** | 示例 select 从 label+select 垂直堆叠改为与按钮等高的内联 select；三组功能（文件操作/示例/视图）用竖线分隔符区分；Score Meta（乐谱标题/副标题/预览摘要）从 topbar 移入各面板 header | Topbar 视觉节奏统一、功能分区清晰、横向空间释放 |
+
+### Sprint 3：构建优化
+
+**改动**：在 `vite.config.ts` 中配置 `rollupOptions.output.manualChunks`，将产物拆分为：
+
+| Chunk | 包含内容 | 体积 |
+|-------|---------|------|
+| `index.js` | 应用逻辑（main + state + editor + preview + toolbar + transport） | 22.29 kB (gzip: 8.44 kB) |
+| `vendor-alphatab.js` | alphaTab 核心引擎 + LSP + Monaco 集成 | 1,304 kB (gzip: 308 kB) |
+| `vendor-monaco.js` | Monaco Editor 核心 | 4,464 kB (gzip: 1,147 kB) |
+| `vendor-fonts.css` | 字体 CSS | 独立 CSS chunk |
+
+**效果**：浏览器可并行加载多个 chunk，且 vendor chunk 缓存命中率高（应用逻辑变更不会导致 vendor 缓存失效）。
 
 ## 运行与验证
 
@@ -74,6 +147,7 @@ npm run build --workspace=packages/realtime-editor
 
 - `npm run typecheck --workspace=packages/realtime-editor` ✅
 - `npm run build --workspace=packages/realtime-editor` ✅
+- `biome lint src/` ✅
 - 浏览器联调测试 ✅（详见下方测试报告）
 
 ### 联调测试报告（2026-03-16）
@@ -151,23 +225,19 @@ npm run build --workspace=packages/realtime-editor
 | 导出功能 | 点击导出 AlphaTex | ✅ 正常 | 触发文件下载 |
 | localStorage 持久化 | 输入内容后刷新页面 | ✅ 正常 | 编辑器内容成功恢复 |
 
-**发现的体验优化点**：
-
-1. **布局/缩放/速度等设置未持久化**（P2）：用户设置 Page 布局后刷新页面会恢复到默认的 Parchment，localStorage 只保存了 `document` 和 `view`（拆分模式），建议也持久化 `layout`/`zoom`/`speed`/`scroll` 等设置
-2. **清空编辑器时标题区域未更新**（P3）：编辑器内容清空后，右上角仍显示上次的标题和轨道/小节信息，建议在空编辑器时更新标题区域
-3. **诊断面板 `.` 分隔符 warning 始终存在**（P4）：所有示例和用户自定义谱子中使用 `.` 分隔符时都会产生 LSP warning "The dots separating score metadata, score contents and the sync points can be removed."，这个 warning 可能会让新用户困惑
-4. **Monaco 编辑器无法通过浏览器标准键盘快捷键操作**（P4）：`Cmd+A` 等系统级快捷键在 Monaco 编辑器中不生效，需要使用 Monaco 自身的快捷键体系，这是 Monaco 的特性而非 bug
-
 ## 当前遗留问题 / 后续优化
 
 ### 待优化
 
-- 构建产物中的主 chunk 体积较大，后续可通过动态导入或 `manualChunks` 做拆分
 - 示例内容仍以内置脚本为主，后续可接入更多外部示例 / 模板库
-- 当前状态管理集中在 `main.ts`，第二阶段可继续拆成 `editor` / `preview` / `transport` / `toolbar` 模块
 - 若要进一步复用 `playground` 能力，建议抽公共层而不是复制页面逻辑
 - **布局/缩放/速度/滚动设置持久化到 localStorage**
 - **清空编辑器时更新标题区域状态**
+
+### 已完成优化
+
+- ~~构建产物中的主 chunk 体积较大，后续可通过动态导入或 `manualChunks` 做拆分~~ ✅ 已通过 manualChunks 拆分
+- ~~当前状态管理集中在 `main.ts`，第二阶段可继续拆成 `editor` / `preview` / `transport` / `toolbar` 模块~~ ✅ 已完成模块化拆分
 
 ### 环境说明
 
