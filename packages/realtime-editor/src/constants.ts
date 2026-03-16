@@ -53,6 +53,16 @@ export const EXAMPLES: Record<ExampleId, ExampleDefinition> = {
     }
 };
 
+/**
+ * 新建文档时使用的最小可用模板
+ * 提供一个可渲染的起点，让预览面板不会报错
+ */
+export const NEW_DOCUMENT_TEMPLATE = String.raw`\title "New Score"
+\tempo 120
+.
+:4 1.1 1.1 1.1 1.1 |
+`;
+
 export const LAYOUT_MODES = {
     page: alphaTab.LayoutMode.Page,
     parchment: alphaTab.LayoutMode.Parchment,

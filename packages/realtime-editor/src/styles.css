@@ -90,7 +90,11 @@ input {
     backdrop-filter: blur(24px);
 }
 
-.topbar,
+.topbar {
+    position: relative;
+    z-index: 10;
+}
+
 .transport,
 .workspace {
     position: relative;
@@ -259,7 +263,7 @@ input {
     background: transparent;
 }
 
-/* 内联 select（与 toolbar-button 等高等风格） */
+/* 内联 select（Transport 等处通用） */
 .toolbar-select {
     appearance: none;
     border: 1px solid var(--line);
@@ -280,6 +284,170 @@ input {
 .toolbar-select:focus {
     outline: 2px solid rgba(141, 216, 255, 0.5);
     outline-offset: 1px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Example Trigger & Panel — 示例弹出面板
+   ═══════════════════════════════════════════════════════════ */
+
+.example-trigger {
+    position: relative;
+    display: inline-flex;
+}
+
+.example-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 100;
+    min-width: 260px;
+    border-radius: 14px;
+    border: 1px solid var(--line-strong);
+    background: var(--bg-panel);
+    backdrop-filter: blur(24px);
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+    padding: 6px;
+    display: grid;
+    gap: 2px;
+    animation: example-panel-in 160ms ease;
+}
+
+.example-panel[hidden] {
+    display: none;
+}
+
+@keyframes example-panel-in {
+    from {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.example-panel__item {
+    appearance: none;
+    display: grid;
+    gap: 3px;
+    text-align: left;
+    width: 100%;
+    padding: 10px 14px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 140ms ease;
+}
+
+.example-panel__item:hover {
+    background: rgba(141, 216, 255, 0.1);
+}
+
+.example-panel__item strong {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.example-panel__item span {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Example Preview Banner — 示例预览横幅
+   ═══════════════════════════════════════════════════════════ */
+
+.example-preview-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: linear-gradient(90deg, rgba(141, 216, 255, 0.1), rgba(241, 183, 94, 0.08));
+    border-bottom: 1px solid rgba(141, 216, 255, 0.2);
+    font-size: 13px;
+    animation: banner-in 200ms ease;
+}
+
+.example-preview-banner[hidden] {
+    display: none;
+}
+
+@keyframes banner-in {
+    from {
+        opacity: 0;
+        max-height: 0;
+        padding-top: 0;
+        padding-bottom: 0;
+    }
+    to {
+        opacity: 1;
+        max-height: 60px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+    }
+}
+
+.example-preview-banner__icon {
+    font-size: 16px;
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.example-preview-banner__label {
+    flex: 1;
+    min-width: 0;
+    color: var(--text);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.example-preview-banner__actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.example-preview-banner__button {
+    appearance: none;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    white-space: nowrap;
+}
+
+.example-preview-banner__button:hover {
+    transform: translateY(-1px);
+}
+
+.example-preview-banner__button--restore {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.16);
+}
+
+.example-preview-banner__button--restore:hover {
+    border-color: rgba(141, 216, 255, 0.45);
+    background: rgba(141, 216, 255, 0.12);
+}
+
+.example-preview-banner__button--adopt {
+    background: linear-gradient(135deg, rgba(141, 216, 255, 0.22), rgba(241, 183, 94, 0.16));
+    color: #ffffff;
+    border-color: rgba(141, 216, 255, 0.3);
+}
+
+.example-preview-banner__button--adopt:hover {
+    border-color: rgba(141, 216, 255, 0.6);
+    background: linear-gradient(135deg, rgba(141, 216, 255, 0.32), rgba(241, 183, 94, 0.24));
 }
 
 /* 功能组分隔符 */

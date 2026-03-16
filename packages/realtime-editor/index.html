@@ -23,19 +23,33 @@
                 <div class="toolbar-group">
                     <button class="toolbar-button" id="newDocumentButton" type="button">新建</button>
                     <button class="toolbar-button" id="openFileButton" type="button">打开文件</button>
+                    <!-- 示例入口：按需展开 -->
+                    <div class="example-trigger">
+                        <button class="toolbar-button toolbar-button--ghost" id="exampleButton" type="button" aria-expanded="false" aria-controls="examplePanel">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="vertical-align: -2px; margin-right: 4px;">
+                                <path d="M2 3.5h10M2 7h7M2 10.5h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                            </svg>
+                            示例
+                        </button>
+                        <div class="example-panel" id="examplePanel" role="menu" hidden>
+                            <button class="example-panel__item" type="button" role="menuitem" data-example="overture">
+                                <strong>♪ 序章动机</strong>
+                                <span>分层主旋律与和声示例</span>
+                            </button>
+                            <button class="example-panel__item" type="button" role="menuitem" data-example="fingerstyle">
+                                <strong>♪ 指弹片段</strong>
+                                <span>适合试听播放与缩放观察</span>
+                            </button>
+                            <button class="example-panel__item" type="button" role="menuitem" data-example="swing">
+                                <strong>♪ Swing 练习</strong>
+                                <span>多小节 Swing 节奏练习</span>
+                            </button>
+                        </div>
+                    </div>
                     <button class="toolbar-button toolbar-button--ghost" id="downloadAlphaTexButton" type="button">导出</button>
                     <button class="toolbar-button toolbar-button--ghost" id="printButton" type="button">打印</button>
                     <input id="fileInput" type="file" hidden accept=".gp,.gp3,.gp4,.gp5,.gpx,.gp7,.gp8,.xml,.musicxml,.mxl,.txt,.alphatex,.atx" />
                 </div>
-
-                <span class="toolbar-divider" aria-hidden="true"></span>
-
-                <!-- 示例选择（内联风格，与按钮等高） -->
-                <select class="toolbar-select" id="exampleSelect" title="加载预置示例">
-                    <option value="overture">序章动机</option>
-                    <option value="fingerstyle">指弹片段</option>
-                    <option value="swing">Swing 练习</option>
-                </select>
 
                 <span class="toolbar-divider" aria-hidden="true"></span>
 
@@ -60,6 +74,16 @@
                     <div class="panel__meta">
                         <strong id="scoreTitle">未命名工作区</strong>
                         <span id="scoreSubtitle">准备加载 AlphaTex 示例</span>
+                    </div>
+                </div>
+
+                <!-- 示例预览横幅（默认隐藏） -->
+                <div class="example-preview-banner" id="examplePreviewBanner" hidden>
+                    <span class="example-preview-banner__icon">ⓘ</span>
+                    <span class="example-preview-banner__label" id="examplePreviewLabel">正在预览示例</span>
+                    <div class="example-preview-banner__actions">
+                        <button class="example-preview-banner__button example-preview-banner__button--restore" id="restoreDocumentButton" type="button">还原到我的文档</button>
+                        <button class="example-preview-banner__button example-preview-banner__button--adopt" id="adoptExampleButton" type="button">采用此示例</button>
                     </div>
                 </div>
 

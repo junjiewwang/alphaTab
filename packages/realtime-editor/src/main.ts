@@ -32,7 +32,6 @@ void initialize();
 
 async function initialize(): Promise<void> {
     try {
-        dom.exampleSelect.value = readStorage(STORAGE_KEYS.example) ?? 'overture';
         setStatus('muted', '正在初始化', '加载编辑器与预览能力');
 
         setupSplit();

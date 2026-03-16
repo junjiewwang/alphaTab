@@ -14,9 +14,14 @@ export const dom = {
     diagnosticsList: document.querySelector<HTMLUListElement>('#diagnosticsList')!,
     trackList: document.querySelector<HTMLElement>('#trackList')!,
     trackCount: document.querySelector<HTMLElement>('#trackCount')!,
-    exampleSelect: document.querySelector<HTMLSelectElement>('#exampleSelect')!,
     newDocumentButton: document.querySelector<HTMLButtonElement>('#newDocumentButton')!,
     openFileButton: document.querySelector<HTMLButtonElement>('#openFileButton')!,
+    exampleButton: document.querySelector<HTMLButtonElement>('#exampleButton')!,
+    examplePanel: document.querySelector<HTMLElement>('#examplePanel')!,
+    examplePreviewBanner: document.querySelector<HTMLElement>('#examplePreviewBanner')!,
+    examplePreviewLabel: document.querySelector<HTMLElement>('#examplePreviewLabel')!,
+    restoreDocumentButton: document.querySelector<HTMLButtonElement>('#restoreDocumentButton')!,
+    adoptExampleButton: document.querySelector<HTMLButtonElement>('#adoptExampleButton')!,
     downloadAlphaTexButton: document.querySelector<HTMLButtonElement>('#downloadAlphaTexButton')!,
     printButton: document.querySelector<HTMLButtonElement>('#printButton')!,
     fileInput: document.querySelector<HTMLInputElement>('#fileInput')!,
@@ -52,7 +57,10 @@ export const state: AppState = {
     currentTimeInfo: null,
     lastFileName: EXAMPLES.overture.fileName,
     shouldSyncEditorFromExternalLoad: false,
-    lastSuccessfulCode: ''
+    lastSuccessfulCode: '',
+    isExamplePreview: false,
+    previewingExampleId: null,
+    userDocumentBackup: null
 };
 
 // ─── 状态变更辅助 ────────────────────────────────────────────
