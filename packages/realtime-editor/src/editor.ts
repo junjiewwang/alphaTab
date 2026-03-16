@@ -159,6 +159,11 @@ export async function setupEditor(
         }
     });
 
+    // 绑定 Alt+/ 触发智能提示（与 IntelliJ/Eclipse 习惯一致）
+    editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.Slash, () => {
+        editor.trigger('keyboard', 'editor.action.triggerSuggest', {});
+    });
+
     editor.onDidChangeModelContent(() => {
         persistDocument(editor.getValue());
         onContentChange();
