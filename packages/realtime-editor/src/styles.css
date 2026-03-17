@@ -981,16 +981,16 @@ input {
     background: rgba(141, 216, 255, 0.12) !important;
 }
 
-/* 节拍指示线 — 金色竖线 */
+/* 节拍指示线 — 深紫色竖线 */
 .at-cursor-beat {
-    background: #f1b75e !important;
+    background: #7c3aed !important;
     opacity: 0.9;
-    box-shadow: 0 0 8px rgba(241, 183, 94, 0.5);
+    box-shadow: 0 0 8px rgba(124, 58, 237, 0.5);
 }
 
 /* 当前播放音符高亮 */
 .at-highlight * {
-    fill: #f1b75e !important;
+    fill: #3a8eed !important;
 }
 
 /* ═══════════════════════════════════════════════════════════
