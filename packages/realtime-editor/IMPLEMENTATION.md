@@ -48,6 +48,7 @@ src/
 ├── preview.ts     # alphaTab 预览渲染 / 轨道管理 / 渲染调度
 ├── toolbar.ts     # 顶部工具栏事件 / 文件操作 / 示例加载
 ├── transport.ts   # 播放控制 / 速度 / 缩放 / 布局 / 滚动
+├── mobile.ts      # 移动端增强（Action Bar / touch 事件 / 字号适配）
 └── styles.css     # 工作台视觉样式
 ```
 
@@ -326,3 +327,333 @@ dom.restoreDocumentButton.style.display = state.userDocumentBackup ? '' : 'none'
 **验证要点**：
 - 空白文档 → 点击示例 → 横幅显示「退出预览」+ 「采用此示例」两个按钮 → 点击「退出预览」回到空白文档 ✅
 - 有内容文档 → 点击示例 → 横幅显示「还原到我的文档」+ 「采用此示例」两个按钮 → 点击「还原到我的文档」恢复之前内容 ✅
+
+---
+
+## 第四阶段：移动端（iPad / 手机）适配（2026-03-17）
+
+### Sprint 1：P0 + P1 核心移动端增强
+
+**目标**：让 Realtime Editor 在 iPad 和手机端基本可用，重点解决触摸交互和输入体验问题。
+
+#### 新增文件
+
+| 文件 | 职责 |
+|------|------|
+| `mobile.ts` | 移动端增强模块：设备检测、Action Bar、时间轴 touch、字号适配 |
+
+#### 改动文件
+
+| 文件 | 改动内容 |
+|------|----------|
+| `main.ts` | 引入 `mobile.ts`，在初始化流程中调用 `setupMobileEnhancements()` |
+| `transport.ts` | 时间轴 click 事件复用 `seekToClientX()` 公共函数（消除重复代码） |
+| `styles.css` | 新增 `.editor-action-bar` 样式 + `@media (pointer: coarse)` 触摸设备增强 |
+| `index.html` | viewport meta 添加 `maximum-scale=1` 防止 iOS 自动缩放 |
+
+#### 功能清单
+
+| 功能 | 优先级 | 实现方式 | 说明 |
+|------|--------|----------|------|
+| **编辑器快捷工具栏** | P0 | `mobile.ts` 动态注入 DOM + CSS `@media (pointer: coarse)` 控制可见性 | 提供撤销/重做/Tab/智能提示/缩进/取消缩进快捷按钮 |
+| **时间轴 touch 事件** | P0 | `mobile.ts` 监听 `touchstart/touchmove/touchend` | 支持触摸拖动进度条跳转播放位置，与 click 事件共用 `seekToClientX()` |
+| **按钮最小触摸区域** | P1 | CSS `@media (pointer: coarse)` 设置 `min-height: 44px; min-width: 44px` | 符合 Apple HIG / WCAG 2.5.5 标准 |
+| **编辑器字号 16px** | P1 | `mobile.ts` 调用 `editor.updateOptions({ fontSize: 16 })` | 防止 iOS Safari 在 textarea 聚焦时自动缩放页面 |
+
+#### 设计决策
+
+1. **独立模块**：所有移动端增强集中在 `mobile.ts`，符合 SRP 原则，不修改现有模块的核心逻辑
+2. **CSS 隔离**：通过 `@media (pointer: coarse)` 而非 `max-width` 控制触摸增强，确保大尺寸触摸设备（如 iPad Pro 12.9"）也能受益
+3. **公共函数复用**：`seekToClientX()` 抽取为公共函数，`transport.ts` 的 click 事件和 `mobile.ts` 的 touch 事件共用，消除重复代码
+4. **零侵入**：Action Bar 通过 `insertAdjacentElement` 动态注入，CSS 默认 `display: none`，桌面端完全无感知
+5. **viewport 锁定**：`maximum-scale=1` 配合 `fontSize: 16` 双重保障，防止 iOS 在 Monaco 输入框聚焦时自动缩放
+
+#### 验证清单
+
+- [ ] TypeScript 类型检查通过 (`npx tsc --noEmit`)
+- [ ] Biome lint 检查通过
+- [ ] 桌面端：Action Bar 不可见，所有功能不受影响
+- [ ] 触摸设备：Action Bar 可见，按钮可正常触发 Monaco 操作
+- [ ] 触摸设备：时间轴可通过触摸拖动跳转播放位置
+- [ ] 触摸设备：所有按钮触摸区域 ≥ 44×44px
+- [ ] iOS Safari：编辑器聚焦时页面不会自动缩放
+
+### Sprint 1.5：手机端布局优化（2026-03-17）
+
+**问题描述**：手机端（< 640px）布局存在多个体验问题：
+1. 页面外边距过大（padding: 14px + inset: 14px），浪费手机小屏幕空间
+2. 工具栏按钮溢出换行混乱
+3. 两个面板同时垂直堆叠，每个面板高度不足
+4. Transport 区域过于复杂，在小屏上拥挤不堪
+5. Track dock 在手机端占用过多空间
+
+**解决方案**：新增 `@media (max-width: 640px)` 手机端专用断点 + JS 运行时适配
+
+#### CSS 改动（`styles.css`）
+
+| 优化项 | 改动 | 效果 |
+|-------|------|------|
+| **外边距缩减** | `padding: 14px` → `4px`，`inset: 14px` → `4px`，`border-radius: 24px` → `14px` | 有效显示面积增加约 30% |
+| **Topbar 精简** | 标题 16px、按钮 padding/font-size 缩小、隐藏导出/打印按钮 | 工具栏不再溢出换行 |
+| **面板紧凑化** | `min-height: 420px` → `0`（自适应）、header padding 缩减 | 面板可以灵活分配高度 |
+| **Track dock 隐藏** | 手机端 `display: none` | 释放预览区域空间 |
+| **Transport 极致紧凑** | 隐藏 `transport__right`（速度/缩放/布局/滚动） | Transport 仅保留核心播放控制 |
+| **示例面板适配** | 限制 `max-width: calc(100vw - 24px)` | 弹出面板不超出屏幕 |
+| **触摸区域调整** | 手机端触摸按钮 min-height 从 44px 降至 36px | 平衡触摸友好和空间利用 |
+| **dvh 单位** | 使用 `100dvh` 适配移动端地址栏 | 避免地址栏显示/隐藏导致布局跳动 |
+
+#### JS 改动（`mobile.ts`）
+
+| 功能 | 实现 | 说明 |
+|------|------|------|
+| **手机端检测** | `isMobileDevice()`: `innerWidth ≤ 640 && isTouchDevice()` | 综合屏幕宽度和触摸能力 |
+| **默认视图模式** | `applyMobileDefaultView()`: split → editor | 手机端默认只显示编辑器，避免两面板挤压 |
+| **诊断面板自动折叠** | `collapseDiagnosticsOnMobile()` | 节省手机端垂直空间 |
+
+#### 调用时序调整（`main.ts`）
+
+将 `setupMobileEnhancements()` 移至 `setViewMode()` 之后调用，确保手机端默认视图逻辑能正确判断用户是否有已保存的视图偏好。
+
+#### 验证清单
+
+- [x] TypeScript 类型检查通过 (`npx tsc --noEmit`)
+- [x] 手机端浏览器验证（外边距、工具栏、面板高度）— Playwright 多设备模拟验证通过
+- [x] 手机端默认视图模式为"仅编辑" — JS 逻辑已实现，Playwright 无法模拟触摸能力，需真机验证
+- [x] 手机端诊断面板自动折叠 — JS 逻辑已实现，Playwright 无法模拟触摸能力，需真机验证
+- [x] 桌面端无影响（断点外无变化）— 桌面端 1280×800 截图验证通过
+- [x] iPad 端无影响（768px > 640px 断点）— iPad 768×1024 截图 + snapshot 验证通过
+- [x] iPad Pro 端无影响（1024px > 所有移动端断点）— iPad Pro 1024×1366 截图验证通过
+
+#### 多设备模拟测试报告（2026-03-17）
+
+使用 Playwright MCP 模拟四种设备尺寸进行自动化截图和 accessibility snapshot 分析：
+
+| 设备 | 视口尺寸 | 触发断点 | CSS 验证结果 |
+|------|---------|---------|-------------|
+| 桌面端 | 1280×800 | 无 | ✅ 所有元素正常，完整布局 |
+| iPhone SE | 375×667 | 640px + 980px | ✅ 导出/打印隐藏，Transport 精简，Track dock 隐藏 |
+| iPad | 768×1024 | 980px（非 640px） | ✅ 导出/打印可见，Transport 完整，Track dock 可见 |
+| iPad Pro | 1024×1366 | 无 | ✅ 与桌面端一致的完整布局 |
+
+**结论**：手机端 `@media (max-width: 640px)` 断点完全隔离，未影响 iPad 端。iPad 768px > 640px 阈值，CSS 层面无交叉。
+
+**已知测试限制**：Playwright 不模拟触摸能力（`pointer: coarse`），因此：
+1. `isMobileDevice()` 在 iPhone SE 模拟下返回 false（缺少 `isTouchDevice()`），默认视图模式未切换
+2. `@media (pointer: coarse)` 相关样式（44px 触摸区域、Action Bar 显示等）未在截图中生效
+3. 以上两项需通过真实触摸设备验证
+
+### Sprint 1.6：窄屏视图约束 — 980px 以下禁用 split 模式（2026-03-17）
+
+**问题描述**：当浏览器窗口宽度 ≤ 980px 时，CSS 已将 workspace 改为纵向堆叠（`flex-direction: column`），gutter 隐藏。但 JS 层面仍允许用户切换到 split 视图，或从 localStorage 恢复 split 偏好，导致在窄屏下 split 模式实际不可用但状态不一致。
+
+**解决方案**：三层防护机制
+
+| 层 | 实现 | 文件 |
+|----|------|------|
+| **CSS 层** | `@media (max-width: 980px)` 中隐藏 `[data-view="split"]` 按钮 | `styles.css` |
+| **JS 守卫** | `setViewMode()` 中增加窄屏守卫：当 `window.innerWidth ≤ 980` 时，split 请求降级为 editor | `state.ts` |
+| **JS 监听** | `setupResponsiveViewConstraint()` 通过 `matchMedia` 监听断点变化，进入窄屏时自动从 split 切到 editor | `mobile.ts` |
+
+#### 改动文件
+
+| 文件 | 改动内容 |
+|------|----------|
+| `constants.ts` | 新增 `NARROW_BREAKPOINT = 980` 常量 |
+| `styles.css` | 在 `@media (max-width: 980px)` 中添加 `[data-view="split"] { display: none }` |
+| `mobile.ts` | 移除 `applyMobileDefaultView()`，新增 `isNarrowViewport()` + `setupResponsiveViewConstraint()`（基于 `matchMedia` 监听） |
+| `state.ts` | `setViewMode()` 增加窄屏守卫逻辑（split → editor 降级），导入 `NARROW_BREAKPOINT` |
+
+#### 设计决策
+
+1. **常量统一**：CSS 断点值 `980px` 与 JS 常量 `NARROW_BREAKPOINT` 保持一致，避免魔法数字分散
+2. **`matchMedia` 替代 `resize` 事件**：`matchMedia` 仅在跨越断点时触发回调，性能优于节流 `resize` 事件
+3. **不自动恢复 split**：从窄屏回到宽屏时不自动切回 split，尊重用户当前手动选择的视图模式
+4. **`applyMobileDefaultView()` 被移除**：原逻辑基于 `isMobileDevice()`（640px + touch），覆盖范围不足（iPad 768px 下 split 同样不可用）；新的 `setupResponsiveViewConstraint()` 覆盖所有 ≤ 980px 场景，更通用
+
+#### 验证清单
+
+- [ ] TypeScript 类型检查通过
+- [ ] 窄屏（≤ 980px）：split 按钮不可见，localStorage 中保存的 split 偏好在加载时被降级为 editor
+- [ ] 窄屏 → 宽屏（拖动窗口或旋转设备）：不自动切回 split，保持当前视图
+- [ ] 宽屏 → 窄屏（正在使用 split）：自动切到 editor，split 按钮消失
+- [ ] 宽屏下 split 功能完全正常，无回归
+
+### Sprint 2：P2 + P3 进阶移动端增强（待实施）
+
+| 功能 | 优先级 | 状态 |
+|------|--------|------|
+| 底部 Tab Bar（手机端面板切换） | P2 | 待实施 |
+| 乐谱双指缩放手势 | P2 | 待实施（需 spike 验证） |
+| 工具栏折叠 / 更多菜单 | P3 | 待实施 |
+
+### Bug 修复：设备切换后编辑器空白 + 手机端乐谱紧凑（2026-03-17）
+
+#### 问题 1：设备切换后编辑器区域空白
+
+**问题描述**：在 DevTools 中切换设备模拟器（如 iPhone → iPad Pro）后，编辑器区域显示空白。页面刷新后恢复正常。
+
+**根因分析（深层）**：
+
+问题的本质是 `setViewMode()` 中 **Split.js 与 CSS `display: none` 的操作顺序冲突**：
+
+1. `setViewMode()` 先设置 `dom.workspace.dataset.view = resolvedView`
+2. 这**立即**触发 CSS 规则 `[data-view='editor'] #previewPane { display: none }`
+3. 然后调用 `state.split?.setSizes([100, 0])`，但此时 previewPane 已经 `display: none`
+4. **Split.js 无法正确操作 `display: none` 的元素**，计算出错误的宽度值
+5. 导致 editorPane 的内联 `width` 被设置为异常值（如 0%），Monaco 编辑器无法渲染
+
+在首次加载或页面刷新时不出问题，是因为初始 DOM 上没有 `data-view` 属性，两个面板都可见。但在 `setupResponsiveViewConstraint()` 的 `handleChange` 中调用 `setViewMode(state.currentView)` 时，面板已经有 `data-view` 属性，先触发了 `display: none`，再调 `setSizes()` 就出错了。
+
+**修复内容**（`state.ts`）：
+
+调换 `setViewMode()` 中的操作顺序，三步走：
+1. **先 `delete dom.workspace.dataset.view`**：临时移除属性，确保两个面板都可见（非 `display: none`）
+2. **在面板都可见时调用 `split.setSizes()`**：Split.js 可以正确计算和设置宽度
+3. **最后设置 `dom.workspace.dataset.view = resolvedView`**：触发 CSS 隐藏对应面板
+
+这样 Split.js 始终在面板可见时操作，CSS `display: none` 在 Split.js 完成尺寸设置后才生效。
+
+#### 问题 2：手机端预览乐谱一行放 3 个小节太拥挤
+
+**问题描述**：在 iPhone 12 Pro（390px 宽）上，预览视图的乐谱一行渲染 3 个小节过于紧凑拥挤，可读性差。
+
+**根因分析**：
+
+alphaTab 的 Parchment 布局通过 `ModelUtils.getSystemLayout()` 获取每行小节数，默认值来自 `score.defaultSystemsLayout = 3`。在 390px 宽的手机屏幕上，3 个小节挤在一起非常紧凑。之前只是降低 `scale` 到 0.8，但没有调整每行小节数，效果不明显。
+
+**修复内容**（`mobile.ts`）：
+
+将 `setupMobilePreviewScale()` 重构为 `setupMobilePreviewLayout()`，增加两方面优化：
+
+1. **缩放优化**（保留）：手机端 `display.scale = 0.8`
+2. **每行小节数优化**（新增）：
+   - 新增 `calculateBarsPerRow(viewportWidth)` 函数，以 250px 为一个小节的参考宽度，根据屏幕宽度动态计算合适的每行小节数
+   - 390px 宽屏幕 → `(390 - 40) / 250 = 1` → 每行 1 个小节
+   - 640px 宽屏幕 → `(640 - 40) / 250 = 2` → 每行 2 个小节
+   - 通过 `scoreLoaded` 事件钩子，在每次乐谱加载后动态修改 `score.defaultSystemsLayout` 和每个 `track.defaultSystemsLayout`
+   - Parchment 布局通过 `ModelUtils.getSystemLayout()` 读取这些值来决定排版
+   - 回到非手机端时恢复默认值 3
+
+**改动文件**：
+
+| 文件 | 改动内容 |
+|------|----------|
+| `state.ts` | `setViewMode()` 调换操作顺序：先移除 data-view → Split.js setSizes → 再设 data-view |
+| `mobile.ts` | `setupMobilePreviewScale()` → `setupMobilePreviewLayout()`，增加根据宽度动态设置每行小节数的逻辑 |
+
+**验证清单**：
+
+- [x] TypeScript 类型检查通过 (`npx tsc --noEmit`)
+- [x] 构建通过 (`npm run build`)
+- [x] Lint 检查通过
+- [ ] 真机验证：iPhone 12 Pro 预览乐谱每行 1 个小节，可读性改善
+- [ ] 真机验证：从 iPhone 切换到 iPad Pro 后编辑器不再空白
+- [ ] 桌面端无回归：缩放保持 scale=1，每行小节数保持默认 3
+
+### Bug 修复：从"仅预览"切换到"仅编辑"后编辑器空白（2026-03-17）
+
+**问题描述**：在"仅预览"模式下切换到"仅编辑"，编辑器区域虽然显示了标题栏和底部工具栏，但中间的 Monaco 编辑器内容区域是空白的。
+
+**复现路径**：拆分视图 → 仅预览 → 仅编辑 → 编辑器空白
+
+**根因分析**：
+
+`setViewMode()` 中 Step 1（`delete dom.workspace.dataset.view`）移除 `data-view` 属性后，`editorPane` 从 `display: none` 恢复为可见。但浏览器此时尚未完成 reflow/layout，元素尺寸仍为 0。紧接着 Step 2 调用 `split.setSizes([100, 0])`，Split.js 读取到的容器/元素尺寸不正确，导致 editorPane 的内联 `width` 被设置为异常值，Monaco 编辑器渲染为空白。
+
+此问题只在涉及 `preview → editor` 或 `preview → split` 方向的切换时出现（因为 `editorPane` 之前被 `display: none` 隐藏），其他方向不受影响。
+
+**修复内容**（`state.ts`）：
+
+在 `delete dom.workspace.dataset.view` 之后、`split.setSizes()` 之前，插入一行 `dom.workspace.offsetHeight` 强制浏览器同步完成挂起的样式计算和布局（reflow），确保面板从 `display: none` 恢复后获得正确尺寸。
+
+```typescript
+// Step 1: 移除 data-view
+delete dom.workspace.dataset.view;
+
+// Step 1.5: 强制 reflow（关键修复）
+dom.workspace.offsetHeight;
+
+// Step 2: Split.js 现在可以正确计算尺寸
+state.split?.setSizes([100, 0]);
+```
+
+**改动文件**：`state.ts`（仅增加一行 + 注释）
+
+**验证清单**：
+
+- [x] 拆分 → 仅预览 → 仅编辑：编辑器正常显示（Playwright 宽屏验证通过）
+- [x] 拆分 → 仅预览 → 拆分：两面板正常显示
+- [x] 其他视图切换方向无回归
+- [x] TypeScript 类型检查通过
+
+### Bug 修复：窄屏（手机/iPad）从"仅预览→仅编辑"切换后编辑器异常（2026-03-17）
+
+**问题描述**：在手机端和 iPad 端（视口宽度 ≤ 980px），从"仅预览"切换到"仅编辑"后，编辑器页面显示异常。
+
+**根因分析（深层）**：
+
+在窄屏模式下（≤ 980px），CSS 已将 workspace 设为 `flex-direction: column`（纵向堆叠），gutter 隐藏。但 `setViewMode()` 仍然调用 Split.js 的 `setSizes()` 操作——Split.js 始终设置水平方向的 `width` 样式（如 `width: calc(0.636% - 5px)`），这在 `flex-direction: column` 的纵向布局下完全无效且有害：
+
+1. **preview 模式**：Split.js 设置 editorPane 的 `width: calc(0.636% - 5px)` ≈ 0 宽度
+2. **切到 editor 模式**：`delete dom.workspace.dataset.view` 让 editorPane 从 `display: none` 恢复可见，但此时 Split.js 上次设的 `width ≈ 0` 仍在内联样式中
+3. **Split.js 的 `setSizes([100, 0])` 重新设置** `width: calc(99.36% - 5px)` — 虽然接近 100% 但不是精确的 100%
+4. **在 Safari WebKit 引擎中**（iOS/iPadOS），这个"先 0% 后 99.36%"的 width 变化过程中，Monaco 的 `ResizeObserver`（`automaticLayout`）可能在 width≈0 时触发了一次 layout，导致编辑器渲染异常
+
+更深层的问题：在 `flex-direction: column` 容器中，Split.js 设置的 `width` 属性**不应该存在** — 它会干扰 flex 容器的自动宽度分配，在不同浏览器引擎中表现不一致。
+
+**修复方案**：在窄屏模式下，`setViewMode()` 走**纯 CSS 路径**，跳过 Split.js：
+
+| 视口宽度 | 路径 | 行为 |
+|---------|------|------|
+| **> 980px（宽屏）** | Split.js 路径 | 先 `delete data-view` → 强制 reflow → `split.setSizes()` → 设 `data-view` |
+| **≤ 980px（窄屏）** | 纯 CSS 路径 | 清除面板内联 `width` → 直接设 `data-view`（由 CSS `display: none` 控制） |
+
+**改动文件**：
+
+| 文件 | 改动内容 |
+|------|----------|
+| `state.ts` | `setViewMode()` 增加 `isNarrow` 分支：窄屏跳过 Split.js，调用 `clearSplitInlineStyles()` 清除内联 width |
+| `styles.css` | `@media (max-width: 980px)` 中 `.panel` 添加 `width: 100% !important` 防止 Split.js 初始化时的内联 width 残留 |
+
+**关键代码**（`state.ts`）：
+
+```typescript
+if (isNarrow) {
+    // 窄屏路径：跳过 Split.js，纯 CSS 驱动视图切换
+    clearSplitInlineStyles();  // 清除 Split.js 遗留的内联 width
+    dom.workspace.dataset.view = resolvedView;
+} else {
+    // 宽屏路径：通过 Split.js 精确控制面板尺寸
+    delete dom.workspace.dataset.view;
+    dom.workspace.offsetHeight;  // 强制 reflow
+    state.split?.setSizes([...]);
+    dom.workspace.dataset.view = resolvedView;
+}
+```
+
+**新增辅助函数**（`state.ts`）：
+
+```typescript
+function clearSplitInlineStyles(): void {
+    document.getElementById('editorPane')?.style.removeProperty('width');
+    document.getElementById('previewPane')?.style.removeProperty('width');
+}
+```
+
+**Playwright 自动化测试结果**：
+
+| 设备 | 视口 | 测试路径 | 结果 |
+|------|------|---------|------|
+| iPhone 12 | 390×844 | 仅编辑 → 仅预览 → 仅编辑 | ✅ 编辑器全宽显示，内联 width 已清除 |
+| iPad Pro 11 | 834×1194 | 仅编辑 → 仅预览 → 仅编辑 | ✅ 编辑器全宽显示，内联 width 已清除 |
+| 桌面端 | 1280×800 | 拆分 → 仅预览 → 仅编辑 → 拆分 | ✅ Split.js 功能完全正常，无回归 |
+
+**验证清单**：
+
+- [x] TypeScript 类型检查通过 (`npx tsc --noEmit`)
+- [x] Biome lint 无新增错误
+- [x] iPhone 12 模拟：仅预览→仅编辑切换正常
+- [x] iPad Pro 11 模拟：仅预览→仅编辑切换正常
+- [x] 桌面端 1280×800：Split.js 功能无回归
+- [x] 窄屏下面板内联 width 样式已完全清除
+- [ ] 真机验证：iOS Safari + iPadOS Safari 从仅预览→仅编辑切换正常

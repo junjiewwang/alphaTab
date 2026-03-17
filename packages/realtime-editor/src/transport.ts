@@ -1,4 +1,5 @@
 import { LAYOUT_MODES, SCROLL_MODES } from './constants';
+import { seekToClientX } from './mobile';
 import { dom, state } from './state';
 
 // ─── Transport 初始化 ────────────────────────────────────────
@@ -52,16 +53,7 @@ export function setupTransport(): void {
     });
 
     dom.timeline.addEventListener('click', event => {
-        if (!state.currentTimeInfo || !state.api) {
-            return;
-        }
-
-        const rect = dom.timeline.getBoundingClientRect();
-        const percent = Math.max(
-            0,
-            Math.min(1, (event.clientX - rect.left) / rect.width)
-        );
-        state.api.timePosition = Math.floor(state.currentTimeInfo.endTime * percent);
+        seekToClientX(event.clientX);
     });
 
     dom.timeline.addEventListener('keydown', event => {

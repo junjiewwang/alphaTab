@@ -1,6 +1,12 @@
 import * as alphaTab from '@coderline/alphatab';
 import type { ExampleDefinition, ExampleId } from './types';
 
+/**
+ * 窄屏断点（px）：低于此宽度时拆分视图不可用，固定为 editor 视图
+ * 与 CSS `@media (max-width: 980px)` 保持一致
+ */
+export const NARROW_BREAKPOINT = 980;
+
 export const STORAGE_KEYS = {
     document: 'alphatab.realtime-editor.document',
     view: 'alphatab.realtime-editor.view',

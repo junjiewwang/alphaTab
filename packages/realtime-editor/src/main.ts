@@ -21,6 +21,7 @@ import './styles.css';
 import Split from 'split.js';
 import { STORAGE_KEYS } from './constants';
 import { setupEditor } from './editor';
+import { setupMobileEnhancements } from './mobile';
 import { setupPreview, scheduleRender } from './preview';
 import { dom, setStatus, setViewMode, state } from './state';
 import { loadInitialDocument, setupToolbar } from './toolbar';
@@ -43,6 +44,10 @@ async function initialize(): Promise<void> {
         setupTrackDockToggle();
 
         setViewMode((readStorage(STORAGE_KEYS.view) as ViewMode | null) ?? 'split');
+
+        // 移动端增强：放在 setViewMode 之后，以便正确判断是否需要覆盖 split 模式
+        setupMobileEnhancements();
+
         loadInitialDocument();
 
         // 初始化完成：移除 loading overlay，渐入显示主界面
