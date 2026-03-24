@@ -192,7 +192,6 @@ export async function renderFromEditor(): Promise<void> {
     try {
         const score = importer.readScore();
         state.currentScore = score;
-        state.lastSuccessfulCode = tex;
 
         if (state.activeTrackIndexes.length === 0) {
             state.activeTrackIndexes = score.tracks.map(track => track.index);
@@ -202,9 +201,13 @@ export async function renderFromEditor(): Promise<void> {
         renderTrackList(score);
         updateScoreMeta(score, state.lastFileName);
 
-        const isIncrementalEdit =
-            state.lastSuccessfulCode.length > 0 &&
-            tex.substring(0, 40) === state.lastSuccessfulCode.substring(0, 40);
+        // 增量编辑判断：决定是否保持当前滚动位置
+        // 必须在 lastSuccessfulCode 更新之前进行比较
+        const isIncrementalEdit = isLikelyIncrementalEdit(state.lastSuccessfulCode, tex);
+
+        // 更新 lastSuccessfulCode（在比较之后，确保下次比较使用正确的基准）
+        state.lastSuccessfulCode = tex;
+
         state.api.renderScore(score, state.activeTrackIndexes, {
             reuseViewport: isIncrementalEdit
         });
@@ -223,6 +226,47 @@ export function updateTimeline(currentTime: number, endTime: number): void {
 }
 
 // ─── 内部辅助 ────────────────────────────────────────────────
+
+/**
+ * 判断当前编辑是否为增量编辑（小幅修改），用于决定是否保持滚动位置。
+ *
+ * 判断逻辑：
+ * 1. 首次渲染（无历史记录）→ 非增量
+ * 2. 长度变化比例超过 20% → 非增量（大段删除/粘贴/切换示例）
+ * 3. 前 80 个字符相同 → 增量（元数据区域未变化，正文区域编辑）
+ * 4. 前 40 个字符相同 → 增量（标题等元数据小幅修改）
+ * 5. 以上均不满足 → 非增量（整体内容大幅变化）
+ */
+function isLikelyIncrementalEdit(previousCode: string, currentCode: string): boolean {
+    // 首次渲染，没有参照基准
+    if (!previousCode) {
+        return false;
+    }
+
+    const prevLen = previousCode.length;
+    const curLen = currentCode.length;
+
+    // 长度变化超过 20%，视为大幅变更（切换示例、大段粘贴/删除）
+    const lengthChangeRatio = Math.abs(curLen - prevLen) / Math.max(prevLen, 1);
+    if (lengthChangeRatio > 0.2) {
+        return false;
+    }
+
+    // 前 80 字符相同 → 高置信度增量编辑（元数据+开头几小节未变）
+    const longPrefixLen = Math.min(80, prevLen, curLen);
+    if (previousCode.substring(0, longPrefixLen) === currentCode.substring(0, longPrefixLen)) {
+        return true;
+    }
+
+    // 前 40 字符相同 → 中等置信度增量编辑（标题区域小幅修改）
+    const shortPrefixLen = Math.min(40, prevLen, curLen);
+    if (previousCode.substring(0, shortPrefixLen) === currentCode.substring(0, shortPrefixLen)) {
+        return true;
+    }
+
+    // 前缀差异过大，视为非增量
+    return false;
+}
 
 function normalizeTrackSelection(
     score: alphaTab.model.Score,

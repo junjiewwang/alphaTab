@@ -226,6 +226,78 @@ npm run build --workspace=packages/realtime-editor
 | 导出功能 | 点击导出 AlphaTex | ✅ 正常 | 触发文件下载 |
 | localStorage 持久化 | 输入内容后刷新页面 | ✅ 正常 | 编辑器内容成功恢复 |
 
+## 第五阶段：Monaco 编辑器体验优化（2026-03-24）
+
+对照 [alphaTab 官方 Monaco 集成文档](https://alphatab.net/docs/alphatex/monaco) 分析后，选取三项优化实施。
+
+### #1 Theme Token 规则扩展（`editor.ts`）
+
+**改动前**：`defineMonacoTheme()` 仅定义 3 条 token 规则（keyword / string / number），大量 TextMate Grammar scope 没有对应的主题颜色。
+
+**改动后**：扩展为 11 条 token 规则，完整覆盖 `alphatex.tmLanguage.json` 中定义的所有 scope：
+
+| Token 规则                    | 颜色       | 对应 TextMate Scope                      | 含义         |
+|------------------------------|-----------|------------------------------------------|-------------|
+| `keyword`                    | `#f1b75e` | `keyword.metadata.alphatex`              | 元数据关键字   |
+| `string`                     | `#f5e6bf` | `string.quoted.single/double.alphatex`   | 字符串字面量   |
+| `number`                     | `#8dd8ff` | `constant.numeric.decimal.alphatex`      | 品位号/弦号   |
+| `constant.numeric`           | `#8dd8ff` | `constant.numeric.decimal.alphatex`      | 显式匹配      |
+| `comment` (italic)           | `#6f7a97` | `comment.block/line.alphatex`            | 注释         |
+| `variable`                   | `#c8d3e6` | `variable.identifier.alphatex`           | 标识符/属性名  |
+| `punctuation.bar`            | `#f1b75e88` | `punctuation.bar.alphatex`             | 小节线 \|    |
+| `punctuation.dot`            | `#6f7a97` | `punctuation.dot.alphatex`               | 品位分隔符 .  |
+| `punctuation.asterisk`       | `#6f7a97` | —                                        | 重复标记 *   |
+| `constant.character.escape`  | `#8dd8ff` | `constant.character.escape.alphatex`     | 转义序列      |
+
+同时新增 `editorBracketMatch.background` 和 `editorBracketMatch.border` 编辑器颜色，为括号匹配高亮提供视觉反馈。
+
+### #4 增量编辑判断优化（`preview.ts`）
+
+**问题**：原 `renderFromEditor()` 中 `lastSuccessfulCode` 的赋值在比较之前（时序 bug），导致增量编辑判断始终为 `true`（`tex` 与自身比较），`reuseViewport` 永远为 `true`，切换示例时滚动位置不会重置。
+
+**修复**：
+
+1. **时序修正**：将 `state.lastSuccessfulCode = tex` 移至比较逻辑之后
+2. **新增 `isLikelyIncrementalEdit()` 函数**：替代原始的前 40 字符比较，实现更智能的增量判断：
+   - 首次渲染（无历史记录）→ 非增量
+   - 长度变化比例超过 20% → 非增量（大段删除/粘贴/切换示例）
+   - 前 80 字符相同 → 高置信度增量编辑
+   - 前 40 字符相同 → 中等置信度增量编辑
+   - 以上均不满足 → 非增量
+
+### #7 编辑器配置增强（`editor.ts`）
+
+在 `monaco.editor.create()` 中新增以下配置项：
+
+| 配置项                            | 值                    | 效果                                    |
+|----------------------------------|-----------------------|-----------------------------------------|
+| `bracketPairColorization.enabled` | `true`               | 括号 (){}[] 彩色配对，提升嵌套可读性         |
+| `matchBrackets`                  | `'always'`            | 始终高亮匹配的括号对                        |
+| `folding`                        | `true`                | 启用代码折叠（对大型乐谱有用）                |
+| `foldingStrategy`                | `'indentation'`       | 基于缩进的折叠策略                          |
+| `cursorBlinking`                 | `'smooth'`            | 柔和的光标闪烁动画                          |
+| `cursorSmoothCaretAnimation`     | `'on'`               | 光标移动时平滑过渡                          |
+| `suggestOnTriggerCharacters`     | `true`                | 输入触发字符时自动弹出建议                    |
+| `quickSuggestions`               | `{other: true, ...}` | 普通代码区域启用快速建议，注释/字符串中不触发     |
+| `guides.bracketPairs`            | `true`                | 缩进区域显示括号配对线                       |
+
+### 改动文件汇总
+
+| 文件 | 改动内容 |
+|------|----------|
+| `editor.ts` | `defineMonacoTheme()` 扩展为 11 条 token 规则 + 2 个编辑器颜色；`monaco.editor.create()` 新增括号/折叠/光标/提示配置 |
+| `preview.ts` | 修复 `lastSuccessfulCode` 时序 bug；新增 `isLikelyIncrementalEdit()` 函数 |
+
+### 验证清单
+
+- [x] TypeScript 类型检查通过 (`npx tsc --noEmit`)
+- [x] Biome lint 无新增错误（仅 styles.css 的 dvh 渐进增强警告为已有项）
+- [ ] 浏览器验证：主题颜色对注释/标点/转义字符的渲染效果
+- [ ] 浏览器验证：括号匹配高亮、代码折叠、光标动画
+- [ ] 浏览器验证：切换示例后滚动位置正确重置；增量编辑时滚动位置保持
+
+---
+
 ## 当前遗留问题 / 后续优化
 
 ### 待优化
