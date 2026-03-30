@@ -46,6 +46,9 @@ export default defineConfig({
         open: '/'
     },
     build: {
+        // Safari 兼容：alphaTab 源码使用了 TC39 Explicit Resource Management 的 `using` 关键字，
+        // Safari 18.2 之前不支持。将 esbuild target 设为 es2021 使其被降级为 try/finally。
+        target: ['es2021', 'safari14'],
         rollupOptions: {
             output: {
                 manualChunks(id) {

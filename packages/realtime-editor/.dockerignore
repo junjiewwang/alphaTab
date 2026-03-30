@@ -1,0 +1,12 @@
+node_modules
+dist
+**/dist
+**/.git
+**/node_modules
+.codebuddy
+.playwright-mcp
+*.md
+!packages/alphatex/src/**/*.md
+docs
+*.log
+.DS_Store

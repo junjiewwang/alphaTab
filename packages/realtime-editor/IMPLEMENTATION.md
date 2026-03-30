@@ -298,6 +298,56 @@ npm run build --workspace=packages/realtime-editor
 
 ---
 
+## 第六阶段：Docker 部署 + Safari 兼容修复（2026-03-30）
+
+### #2 Safari 兼容修复（`vite.config.ts`）
+
+**问题**：Safari 报错 `SyntaxError: Unexpected identifier 'metrics'`，页面无法加载。
+
+**根因**：alphaTab 源码（`SkiaCanvas.ts`、`LineBarRenderer.ts` 等）使用了 TC39 Explicit Resource Management 提案的 `using` 关键字。TypeScript 5.2+ 支持此语法但 `tsconfig.base.json` 的 target 为 `ES2022`，esbuild 在 `ES2022` 时不会降级 `using`。**Safari 18.2 / iOS 18.2 之前不支持 `using`**，将 `using metrics = ...` 中的 `metrics` 当作非法标识符，报出 `SyntaxError: Unexpected identifier 'metrics'`。
+
+**修复**：在 `vite.config.ts` 的 `build` 中添加 `target: ['es2021', 'safari14']`，使 esbuild 将 `using` 降级为 `try/finally` 模式。
+
+**验证**：构建产物中 grep `\busing\b` 仅剩 7 处字符串文本（如 `"using ${s.length} importers"`），无一处可执行代码。
+
+### #1 Docker 部署
+
+**新增文件**：
+
+| 文件 | 说明 |
+|------|------|
+| `Dockerfile` | 多阶段构建：Stage 1 `node:22-alpine` 安装依赖 + 构建产物；Stage 2 `nginx:alpine` 托管静态资源 |
+| `docker-compose.yml` | 一键部署：`docker compose up`，端口 8080 → 80 |
+| `nginx.conf` | SPA fallback、gzip 压缩（含 `application/wasm`、`font/woff2`）、字体 MIME types、`/assets/` 和 `/font/` 1 年缓存 |
+| `.dockerignore` | 排除 `node_modules`、`dist`、`.git`、`.codebuddy`、文档等，减小构建上下文 |
+
+**构建产物规模**（`dist/`）：
+
+```
+index.html              ~1KB
+assets/vendor-monaco-*  ~1.1MB (gzip)
+assets/vendor-alphatab-* ~308KB (gzip)
+assets/vendor-fonts-*   ~50KB (gzip)
+assets/index-*          ~8KB (gzip)
+font/                   ~16MB (含 10MB emoji 字体 + SoundFont)
+```
+
+**部署方式**：
+
+```bash
+cd packages/realtime-editor
+docker compose up -d
+# 访问 http://localhost:8080
+```
+
+**设计要点**：
+- `docker-compose.yml` 的 `context` 设为 `../..`（monorepo 根目录），Dockerfile 中所有 `COPY` 路径相对于 monorepo 根目录（`packages/realtime-editor/`、`packages/alphatab/` 等）
+- Docker 不允许 `COPY ../` 路径，因此不能将 context 设为子目录
+- Nginx 对 `/font/` 路径添加了多种字体 MIME type（`woff2`/`woff`/`otf`/`ttf`），确保浏览器正确加载乐谱渲染字体
+- `gzip_types` 包含 `application/wasm`（WebAssembly）和 `application/octet-stream`（SoundFont `.sf2`），兼顾大资源传输效率
+
+---
+
 ## 当前遗留问题 / 后续优化
 
 ### 待优化
