@@ -348,6 +348,46 @@ docker compose up -d
 
 ---
 
+## 第七阶段：打印空白页修复（2026-03-30）
+
+### 问题描述
+
+在 `realtime-editor` 页面点击“打印”按钮后，会弹出标题正确但内容空白的 `about:blank` 新窗口，无法进入正常打印预览。
+
+### 根因分析
+
+`realtime-editor` 主预览初始化时显式配置了 `core.useWorkers = false`，当前页面渲染稳定；但 alphaTab 内部的 `print()` 实现会在新弹窗中重新创建一个 `AlphaTabApi` 实例，并**强制**将 `settings.core.useWorkers = true`。
+
+这导致打印链路与主预览链路发生分叉：主页面走非 worker 渲染，打印页却走 worker 渲染。在当前 `realtime-editor` 的打包与弹窗场景下，打印页中的 worker 初始化/渲染未能成功完成，最终表现为弹出空白打印页。
+
+### 修复方案（realtime-editor 内收敛）
+
+考虑到 `alphaTab.print()` 在弹窗内会重建渲染实例，且打印对话框打开时机会影响渲染稳定性，本次在 `realtime-editor` 内改为**DOM 快照打印**：
+
+- 不再调用 `state.api.print()`
+- 点击打印时打开新窗口，复制当前页面的 `style` / `link[rel="stylesheet"]`
+- 将当前 `#alphaTab` 已渲染内容 `cloneNode(true)` 注入打印窗口
+- 等待 `document.fonts.ready`（可用时）后再触发 `window.print()`，并增加短延迟避免半渲染
+- 保留空值守卫和弹窗拦截提示，提升失败可诊断性
+- 移除对 `.at-surface > div` 的 `position` 重写，保留 alphaTab 绝对定位布局
+- 对快照根节点锁定宽高，减少打印窗口二次流式布局引发的重排
+
+### 改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `toolbar.ts` | 打印按钮改为 `printCurrentPreviewSnapshot()`；新增样式复制、DOM 快照注入、字体就绪等待和延迟打印逻辑 |
+
+### 验证清单
+
+- [ ] 点击“打印”后不再出现空白 `about:blank` 页面
+- [ ] 打印页能正常渲染当前乐谱内容
+- [x] TypeScript 类型检查通过
+- [x] Biome lint 无新增错误（`styles.css` 中 `100vh` / `100dvh` 为既有告警）
+- [x] Vite 构建通过 (`npm run build`)
+
+---
+
 ## 当前遗留问题 / 后续优化
 
 ### 待优化

@@ -86,7 +86,16 @@ export function setupToolbar(): void {
 
     // ── 打印 ──
     dom.printButton.addEventListener('click', () => {
-        state.api?.print();
+        if (!state.api || !state.currentScore) {
+            setStatus('warning', '打印不可用', '当前没有可打印的乐谱内容');
+            return;
+        }
+
+        setStatus('muted', '正在准备打印', '正在生成打印预览，请稍候');
+        state.api?.print(undefined, {  
+            core: {
+                useWorkers: false
+            }});
     });
 
     // ── 视图模式 ──

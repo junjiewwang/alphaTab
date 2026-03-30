@@ -4,5 +4,5 @@ services:
       context: ../..
       dockerfile: packages/realtime-editor/Dockerfile
     ports:
-      - "5173:80"
+      - "80"
     restart: unless-stopped
