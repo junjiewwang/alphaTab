@@ -2,6 +2,7 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 RUN npm config set registry https://registry.npmmirror.com
+RUN npm config set replace-registry-host always
 
 # 1) 先拷贝依赖描述文件
 COPY package.json ./
@@ -23,7 +24,7 @@ COPY packages/alphatex/package.json ./packages/alphatex/
 COPY packages/alphatex/tsconfig.json ./packages/alphatex/
 
 # 2) 安装依赖（单独成层，最大化缓存）
-RUN --mount=type=cache,target=/root/.npm npm install --include=optional
+RUN --mount=type=cache,target=/root/.npm npm install --include=optional --verbose
 
 # 3) 再拷贝源码和构建输入
 COPY packages/realtime-editor/vite.config.ts ./packages/realtime-editor/
