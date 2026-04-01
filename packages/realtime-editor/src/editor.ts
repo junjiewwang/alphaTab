@@ -6,8 +6,7 @@ import * as monaco from 'monaco-editor';
 // @ts-expect-error Monaco worker is provided by Vite
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import { dom, state } from './state';
-import { escapeHtml, load, persistValue } from './utils';
-import { STORAGE_KEYS } from './constants';
+import { escapeHtml, load } from './utils';
 
 // ─── Monaco 环境 ────────────────────────────────────────────
 
@@ -164,12 +163,6 @@ export function refreshDiagnostics(): void {
         .join('');
 }
 
-// ─── 文档持久化 ───────────────────────────────────────────────
-
-export function persistDocument(content: string): void {
-    persistValue(STORAGE_KEYS.document, content);
-}
-
 // ─── 编辑器初始化（对外导出） ─────────────────────────────────
 
 export async function setupEditor(
@@ -225,7 +218,9 @@ export async function setupEditor(
     });
 
     editor.onDidChangeModelContent(() => {
-        persistDocument(editor.getValue());
+        if (state.suspendDocumentChangeHandling) {
+            return;
+        }
         onContentChange();
     });
 

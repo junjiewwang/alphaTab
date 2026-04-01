@@ -1,5 +1,6 @@
-import { EXAMPLES, NARROW_BREAKPOINT } from './constants';
-import type { AppState, StatusTone, ViewMode } from './types';
+import { DEFAULT_SPLIT_SIZES, NARROW_BREAKPOINT, STORAGE_KEYS } from './constants';
+import type { AppState, StatusTone, ViewMode, WorkspaceDocument } from './types';
+import { persistValue, readStorage } from './utils';
 
 // ─── DOM 引用 ──────────────────────────────────────────────
 
@@ -14,6 +15,8 @@ export const dom = {
     diagnosticsList: document.querySelector<HTMLUListElement>('#diagnosticsList')!,
     trackList: document.querySelector<HTMLElement>('#trackList')!,
     trackCount: document.querySelector<HTMLElement>('#trackCount')!,
+    documentTabs: document.querySelector<HTMLElement>('#documentTabs')!,
+    documentTabList: document.querySelector<HTMLElement>('#documentTabList')!,
     newDocumentButton: document.querySelector<HTMLButtonElement>('#newDocumentButton')!,
     openFileButton: document.querySelector<HTMLButtonElement>('#openFileButton')!,
     exampleButton: document.querySelector<HTMLButtonElement>('#exampleButton')!,
@@ -50,18 +53,36 @@ export const state: AppState = {
     api: null,
     editor: null,
     split: null,
-    currentScore: null,
-    activeTrackIndexes: [],
+    documents: new Map(),
+    documentOrder: [],
+    activeDocumentId: null,
+    renderedDocumentId: null,
     currentView: 'split',
     renderTimer: 0,
-    currentTimeInfo: null,
-    lastFileName: EXAMPLES.overture.fileName,
-    shouldSyncEditorFromExternalLoad: false,
-    lastSuccessfulCode: '',
-    isExamplePreview: false,
-    previewingExampleId: null,
-    userDocumentBackup: null
+    pendingImportRequest: null,
+    pendingRenderDocumentId: null,
+    pendingRenderStatus: null,
+    suspendDocumentChangeHandling: false
 };
+
+// ─── 状态查询辅助 ────────────────────────────────────────────
+
+export function getDocumentById(documentId: string | null): WorkspaceDocument | null {
+    if (!documentId) {
+        return null;
+    }
+    return state.documents.get(documentId) ?? null;
+}
+
+export function getActiveDocument(): WorkspaceDocument | null {
+    return getDocumentById(state.activeDocumentId);
+}
+
+export function getDocumentsInOrder(): WorkspaceDocument[] {
+    return state.documentOrder
+        .map(documentId => state.documents.get(documentId) ?? null)
+        .filter((document): document is WorkspaceDocument => Boolean(document));
+}
 
 // ─── 状态变更辅助 ────────────────────────────────────────────
 
@@ -76,60 +97,75 @@ export function setStatus(tone: StatusTone, title: string, subtitle?: string): v
     }
 }
 
+type SplitSizes = [number, number];
+
+function normalizeSplitSizes(sizes: readonly number[]): SplitSizes | null {
+    if (sizes.length !== 2) {
+        return null;
+    }
+
+    const [left, right] = sizes;
+    if (!Number.isFinite(left) || !Number.isFinite(right)) {
+        return null;
+    }
+
+    const total = left + right;
+    if (total <= 0) {
+        return null;
+    }
+
+    const normalizedLeft = Number(((left / total) * 100).toFixed(2));
+    const normalizedRight = Number((100 - normalizedLeft).toFixed(2));
+    return [normalizedLeft, normalizedRight];
+}
+
+export function getPreferredSplitSizes(): SplitSizes {
+    const raw = readStorage(STORAGE_KEYS.splitSizes);
+    if (!raw) {
+        return [...DEFAULT_SPLIT_SIZES] as SplitSizes;
+    }
+
+    try {
+        const parsed = JSON.parse(raw) as number[];
+        return normalizeSplitSizes(parsed) ?? ([...DEFAULT_SPLIT_SIZES] as SplitSizes);
+    } catch {
+        return [...DEFAULT_SPLIT_SIZES] as SplitSizes;
+    }
+}
+
+export function persistSplitSizes(sizes: readonly number[]): void {
+    const normalized = normalizeSplitSizes(sizes);
+    if (!normalized) {
+        return;
+    }
+
+    persistValue(STORAGE_KEYS.splitSizes, JSON.stringify(normalized));
+}
+
 /**
  * 设置视图模式（更新 state + DOM + split 布局）
- *
- * 窄屏守卫：当视口宽度 ≤ NARROW_BREAKPOINT 时，split 视图不可用（CSS 已隐藏
- * split 按钮和 gutter），此处做运行时兜底，将 split 请求降级为 editor。
- *
- * 宽屏模式 — 操作顺序至关重要：
- * 1. 先临时移除 data-view 属性，确保两个面板都可见（非 display:none）
- * 2. 让 Split.js 在两个面板都可见时计算和设置尺寸
- * 3. 最后设置 data-view 触发 CSS display:none 隐藏对应面板
- *
- * 窄屏模式（≤ NARROW_BREAKPOINT）— 跳过 Split.js：
- * CSS 已将 workspace 设为 flex-direction: column（纵向堆叠），gutter 隐藏。
- * Split.js 的水平 width 操作在纵向布局下无效且有害（会干扰 flex 宽度分配，
- * 在 Safari WebKit 中可能导致面板宽度异常）。因此窄屏下直接清除面板的内联
- * width 样式，只依赖 CSS data-view + display:none 来控制视图切换。
  */
 export function setViewMode(view: ViewMode): void {
-    // 窄屏守卫：拦截 split 请求，降级为 editor
     const isNarrow = window.innerWidth <= NARROW_BREAKPOINT;
-    const resolvedView = (view === 'split' && isNarrow)
-        ? 'editor'
-        : view;
+    const resolvedView = view === 'split' && isNarrow ? 'editor' : view;
 
     state.currentView = resolvedView;
+    persistValue(STORAGE_KEYS.view, resolvedView);
 
-    // 更新工具栏按钮高亮状态
     for (const button of dom.viewButtons) {
         button.classList.toggle('is-active', button.dataset.view === resolvedView);
     }
 
     if (isNarrow) {
-        // ── 窄屏路径：跳过 Split.js，纯 CSS 驱动视图切换 ──
-        // 清除 Split.js 可能遗留的内联 width，让 CSS flex 布局接管
         clearSplitInlineStyles();
-
-        // 直接设置 data-view 触发 CSS display:none 隐藏对应面板
         dom.workspace.dataset.view = resolvedView;
     } else {
-        // ── 宽屏路径：通过 Split.js 精确控制面板尺寸 ──
-
-        // Step 1：临时移除 data-view，确保两个面板都可见
         delete dom.workspace.dataset.view;
-
-        // Step 1.5：强制浏览器 reflow
-        // 当面板从 display:none 恢复为可见时，浏览器可能尚未完成 layout，
-        // Split.js 读取到的元素尺寸仍为 0。读取 offsetHeight 迫使浏览器
-        // 同步完成挂起的样式计算和布局。
         dom.workspace.offsetHeight;
 
-        // Step 2：在面板都可见时让 Split.js 设置正确的尺寸
         switch (resolvedView) {
             case 'split':
-                state.split?.setSizes([46, 54]);
+                state.split?.setSizes(getPreferredSplitSizes());
                 break;
             case 'editor':
                 state.split?.setSizes([100, 0]);
@@ -139,21 +175,13 @@ export function setViewMode(view: ViewMode): void {
                 break;
         }
 
-        // Step 3：设置 data-view 触发 CSS 隐藏对应面板
         dom.workspace.dataset.view = resolvedView;
     }
 
-    // ── 刷新编辑器和预览布局 ──
     state.editor?.layout();
     queuePreviewReflow();
 }
 
-/**
- * 清除 Split.js 在面板上设置的内联 width 样式
- *
- * 在窄屏模式下（flex-direction: column），Split.js 的水平 width 值
- * 会干扰 flex 布局的自动宽度分配。清除后让 CSS flex 规则完全接管。
- */
 function clearSplitInlineStyles(): void {
     const editorPane = document.getElementById('editorPane');
     const previewPane = document.getElementById('previewPane');
@@ -162,10 +190,17 @@ function clearSplitInlineStyles(): void {
 }
 
 /**
- * 延迟触发预览重排（等 split.js 动画完成）
+ * 延迟触发预览重排（等 split.js 动画完成）。
+ *
+ * 守卫：如果当前有正在进行的 `renderScore()`（pendingRenderDocumentId 不为 null），
+ * 说明首帧渲染或文档切换渲染正在执行，此时 `api.render()` 会打断它并产生空布局，
+ * 因此跳过本次 reflow。渲染完成后由 renderFinished 回调自然处理后续状态。
  */
 export function queuePreviewReflow(): void {
     window.setTimeout(() => {
+        if (state.pendingRenderDocumentId) {
+            return;
+        }
         state.api?.render();
     }, 90);
 }

@@ -74,7 +74,7 @@ input {
 .app-shell {
     position: relative;
     display: grid;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: auto auto 1fr;
     gap: 10px;
     height: 100vh;
     padding: 14px;
@@ -142,6 +142,97 @@ input {
     align-items: center;
     flex: 1;
     min-width: 0;
+}
+
+.document-tabs {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    min-width: 0;
+    padding: 0 14px;
+}
+
+.document-tab-list {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    width: 100%;
+    overflow-x: auto;
+    padding: 2px 0 4px;
+    scrollbar-width: thin;
+}
+
+.document-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    max-width: 320px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.05);
+    transition: border-color 160ms ease, background 160ms ease;
+}
+
+.document-tab:hover {
+    border-color: rgba(141, 216, 255, 0.3);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.document-tab.is-active {
+    border-color: rgba(141, 216, 255, 0.42);
+    background: linear-gradient(135deg, rgba(141, 216, 255, 0.16), rgba(241, 183, 94, 0.12));
+}
+
+.document-tab__select,
+.document-tab__close {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+}
+
+.document-tab__select {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 8px 8px 8px 12px;
+    cursor: pointer;
+}
+
+.document-tab__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin: 0 6px 0 0;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 15px;
+    color: var(--text-muted);
+    transition: background 140ms ease, color 140ms ease;
+}
+
+.document-tab__close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+}
+
+.document-tab__dirty {
+    flex-shrink: 0;
+    color: var(--accent-strong);
+    font-size: 10px;
+}
+
+.document-tab__label {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -544,7 +635,7 @@ input {
    ═══════════════════════════════════════════════════════════ */
 
 .panel {
-    flex: 1;
+    flex: 0 0 auto;
     min-width: 0;
     min-height: 0;
     display: grid;
@@ -1097,6 +1188,14 @@ input {
         display: none;
     }
 
+    .document-tabs {
+        padding: 0 14px;
+    }
+
+    .document-tab__label {
+        max-width: 180px;
+    }
+
     /* 窄屏下隐藏拆分按钮：水平 split 已不可用 */
     [data-view="split"] {
         display: none;
@@ -1173,6 +1272,31 @@ input {
 
     .topbar__actions {
         gap: 4px;
+    }
+
+    .document-tabs {
+        padding: 0 8px;
+    }
+
+    .document-tab-list {
+        gap: 6px;
+        padding-bottom: 2px;
+    }
+
+    .document-tab__select {
+        padding: 7px 6px 7px 10px;
+        gap: 6px;
+    }
+
+    .document-tab__label {
+        max-width: 120px;
+        font-size: 12px;
+    }
+
+    .document-tab__close {
+        width: 24px;
+        height: 24px;
+        margin-right: 4px;
     }
 
     /* 次要按钮（导出、打印）隐藏，减少工具栏溢出 */

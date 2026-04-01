@@ -6,6 +6,7 @@ export type ViewMode = 'split' | 'editor' | 'preview';
 export type StatusTone = 'ready' | 'rendering' | 'error' | 'warning' | 'muted';
 export type ExampleId = 'overture' | 'fingerstyle' | 'swing';
 export type SplitInstance = ReturnType<typeof Split>;
+export type DocumentSourceKind = 'new' | 'text-file' | 'imported-file' | 'example' | 'restored';
 
 export type ExampleDefinition = {
     fileName: string;
@@ -13,40 +14,56 @@ export type ExampleDefinition = {
     tex: string;
 };
 
-/**
- * 用户文档备份：进入示例预览模式前保存的用户编辑快照
- */
-export type UserDocumentBackup = {
-    /** 编辑器内容 */
+export type WorkspaceDocumentSnapshot = {
+    id: string;
+    displayName: string;
+    sourceKind: DocumentSourceKind;
     content: string;
-    /** 文件名 */
-    fileName: string;
-    /** 乐谱标题 */
-    scoreTitle: string;
-    /** 乐谱副标题 */
-    scoreSubtitle: string;
-    /** 活跃轨道索引 */
+    savedContent: string;
+    isDirty: boolean;
     activeTrackIndexes: number[];
-    /** 上次成功渲染的代码 */
     lastSuccessfulCode: string;
+    scoreTitle: string;
+    scoreSubtitle: string;
+};
+
+export type WorkspaceSnapshot = {
+    version: 1;
+    activeDocumentId: string | null;
+    documents: WorkspaceDocumentSnapshot[];
+};
+
+export type WorkspaceDocument = WorkspaceDocumentSnapshot & {
+    model: monaco.editor.ITextModel;
+    currentScore: alphaTab.model.Score | null;
+    currentTimeInfo: alphaTab.synth.PositionChangedEventArgs | null;
+};
+
+export type PendingImportRequest = {
+    documentId: string;
+    fileName: string;
+    resolve: () => void;
+    reject: (error: unknown) => void;
+};
+
+export type PendingRenderStatus = {
+    tone: StatusTone;
+    title: string;
+    subtitle?: string;
 };
 
 export type AppState = {
     api: alphaTab.AlphaTabApi | null;
     editor: monaco.editor.IStandaloneCodeEditor | null;
     split: SplitInstance | null;
-    currentScore: alphaTab.model.Score | null;
-    activeTrackIndexes: number[];
+    documents: Map<string, WorkspaceDocument>;
+    documentOrder: string[];
+    activeDocumentId: string | null;
+    renderedDocumentId: string | null;
     currentView: ViewMode;
     renderTimer: number;
-    currentTimeInfo: alphaTab.synth.PositionChangedEventArgs | null;
-    lastFileName: string;
-    shouldSyncEditorFromExternalLoad: boolean;
-    lastSuccessfulCode: string;
-    /** 是否处于示例预览模式 */
-    isExamplePreview: boolean;
-    /** 当前预览的示例 ID */
-    previewingExampleId: ExampleId | null;
-    /** 用户文档备份（进入示例预览前保存） */
-    userDocumentBackup: UserDocumentBackup | null;
+    pendingImportRequest: PendingImportRequest | null;
+    pendingRenderDocumentId: string | null;
+    pendingRenderStatus: PendingRenderStatus | null;
+    suspendDocumentChangeHandling: boolean;
 };

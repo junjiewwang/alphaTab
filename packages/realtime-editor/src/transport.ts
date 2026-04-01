@@ -1,8 +1,6 @@
 import { LAYOUT_MODES, SCROLL_MODES } from './constants';
 import { seekToClientX } from './mobile';
-import { dom, state } from './state';
-
-// ─── Transport 初始化 ────────────────────────────────────────
+import { dom, getActiveDocument, state } from './state';
 
 export function setupTransport(): void {
     dom.playPauseButton.addEventListener('click', () => {
@@ -24,8 +22,7 @@ export function setupTransport(): void {
             return;
         }
 
-        state.api.settings.display.scale =
-            Number.parseInt(dom.zoomSelect.value, 10) / 100;
+        state.api.settings.display.scale = Number.parseInt(dom.zoomSelect.value, 10) / 100;
         state.api.updateSettings();
         state.api.render();
     });
@@ -57,14 +54,12 @@ export function setupTransport(): void {
     });
 
     dom.timeline.addEventListener('keydown', event => {
-        if (!state.currentTimeInfo || !state.api) {
+        const timeInfo = getActiveDocument()?.currentTimeInfo;
+        if (!timeInfo || !state.api) {
             return;
         }
 
-        const step = Math.max(
-            1_000,
-            Math.floor(state.currentTimeInfo.endTime * 0.02)
-        );
+        const step = Math.max(1_000, Math.floor(timeInfo.endTime * 0.02));
         switch (event.key) {
             case 'ArrowLeft':
                 event.preventDefault();
@@ -72,10 +67,7 @@ export function setupTransport(): void {
                 break;
             case 'ArrowRight':
                 event.preventDefault();
-                state.api.timePosition = Math.min(
-                    state.currentTimeInfo.endTime,
-                    state.api.timePosition + step
-                );
+                state.api.timePosition = Math.min(timeInfo.endTime, state.api.timePosition + step);
                 break;
         }
     });

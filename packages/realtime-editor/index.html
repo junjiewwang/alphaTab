@@ -88,7 +88,7 @@
                     </div>
                     <button class="toolbar-button toolbar-button--ghost" id="downloadAlphaTexButton" type="button">导出</button>
                     <button class="toolbar-button toolbar-button--ghost" id="printButton" type="button">打印</button>
-                    <input id="fileInput" type="file" hidden accept=".gp,.gp3,.gp4,.gp5,.gpx,.gp7,.gp8,.xml,.musicxml,.mxl,.txt,.alphatex,.atx" />
+                    <input id="fileInput" type="file" hidden multiple accept=".gp,.gp3,.gp4,.gp5,.gpx,.gp7,.gp8,.xml,.musicxml,.mxl,.txt,.alphatex,.atx" />
                 </div>
 
                 <span class="toolbar-divider" aria-hidden="true"></span>
@@ -101,6 +101,10 @@
                 </div>
             </nav>
         </header>
+
+        <section class="document-tabs" id="documentTabs" aria-label="工作区标签">
+            <div class="document-tab-list" id="documentTabList"></div>
+        </section>
 
         <!-- ═══ Workspace ═══ -->
         <main class="workspace" id="workspace" data-view="split">

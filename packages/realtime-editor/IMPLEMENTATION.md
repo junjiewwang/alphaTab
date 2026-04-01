@@ -434,6 +434,78 @@ docker compose up -d
 
 ---
 
+## 第九阶段：多文件工作区与标签切换（2026-04-01）
+
+### 需求目标
+
+在 `realtime-editor` 中从单文档编辑模式升级为**浏览器内多文档工作区**，支持：
+
+- 同时打开多个文本/导入文件/示例文档
+- 顶部标签页切换当前活动文档
+- 每个文档独立维护内容、脏状态、预览结果、轨道选择与播放时间轴
+- 刷新页面后恢复工作区标签顺序与当前活动文档
+
+### 设计落地
+
+本次采用 **单 Monaco 编辑器 + 多 `ITextModel` + 单预览面板 + 工作区快照持久化** 的实现方案：
+
+1. **编辑器复用**：Monaco 只保留一个实例，切换标签时仅替换 `model`
+2. **状态隔离**：每个 `WorkspaceDocument` 单独保存 `content / savedContent / currentScore / currentTimeInfo / activeTrackIndexes / lastSuccessfulCode`
+3. **预览隔离**：预览面板始终只渲染当前活动文档；渲染失败时仅回退到该文档自己的上次成功结果
+4. **持久化升级**：新增 `alphatab.realtime-editor.workspace`，保存多文档快照并兼容旧单文档 `localStorage`
+5. **交互升级**：示例改为“在新标签页中打开”；文件输入支持 `multiple` 一次导入多个文件
+
+### 本次改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `types.ts` | 新增工作区文档、快照、待导入状态等类型 |
+| `state.ts` | 新增 `documents / documentOrder / activeDocumentId` 等全局工作区状态 |
+| `documents.ts` | 新建多文档模块，负责创建/恢复/切换/关闭标签页与导入文件 |
+| `workspace-storage.ts` | 新建工作区快照持久化读写 |
+| `preview.ts` | 改为按活动文档渲染，并隔离轨道/时间轴/回退逻辑 |
+| `toolbar.ts` | 改造为多文档工具栏；示例新开标签；支持多文件输入；打印改回预览快照模式 |
+| `transport.ts` | 时间轴键盘跳转改为读取当前活动文档的播放时间 |
+| `mobile.ts` | 触摸时间轴和移动端预览布局改为读取当前活动文档 |
+| `main.ts` | 切换到多文档初始化流程：标签栏 + 工作区恢复 + 内容变更持久化 |
+| `index.html` | 新增标签栏容器，文件输入支持 `multiple` |
+| `styles.css` | 新增标签栏与标签页样式，补充窄屏/手机端适配 |
+| `IMPLEMENTATION.md` | 记录本次需求、实施结果、验证与遗留项 |
+
+### 验证结果
+
+- [x] `npm run typecheck --workspace=packages/realtime-editor`
+- [x] `npm run build --workspace=packages/realtime-editor`
+- [x] `read_lints` 检查本次改动文件，无新增 lint 错误
+- [x] `vite dev` 页面骨架校验：开发服务器返回的 HTML 已包含 `documentTabs` / `documentTabList` / `fileInput[multiple]`
+- [ ] 浏览器自动化交互验收：当前环境下 Playwright MCP 导航本地页面失败，暂未完成“点击示例→生成新标签→切换标签”自动验证
+
+### 布局回归修复（2026-04-01）
+
+**问题描述**：多文档标签栏接入后，页面顶部下方出现大面积空白，真正的编辑器与预览区被挤压到底部，整体布局看起来像“主工作区掉到了页面底部”。
+
+**根因分析**：
+
+1. `index.html` 已插入新的 `document-tabs` 节点
+2. 但 `.app-shell` 仍保留旧的 `grid-template-rows: auto 1fr`
+3. 这会导致第二行的 `1fr` 被标签栏占用，`workspace` 被挤到隐式第三行，表现为顶部出现异常大空白区
+4. 同时标签栏基础样式块没有真正落入当前 `styles.css`，导致标签区缺少独立的高度、滚动和选中态约束
+
+**修复内容**：
+
+- 将 `.app-shell` 从两行 grid 改为 `auto auto 1fr`
+- 补充 `.document-tabs` / `.document-tab-list` / `.document-tab` / `.document-tab__select` / `.document-tab__close` 等基础样式
+- 补充 `980px` 以下的标签栏宽度收敛规则，避免中窄屏顶部再次挤压
+- 重新执行构建验证，确认当前源码中的 `styles.css` 已真实包含上述布局修复
+
+### 已知遗留项
+
+1. **浏览器交互验收待补**：建议下一步在本地浏览器或恢复可用的 Playwright MCP 后，补测以下路径：
+   - 新建多个标签并切换
+   - 连续打开多个文件
+   - 示例在新标签页中打开
+   - 关闭脏文档时确认弹窗生效
+
 ## 当前遗留问题 / 后续优化
 
 ### 待优化
@@ -865,3 +937,339 @@ function clearSplitInlineStyles(): void {
 - [x] 桌面端 1280×800：Split.js 功能无回归
 - [x] 窄屏下面板内联 width 样式已完全清除
 - [ ] 真机验证：iOS Safari + iPadOS Safari 从仅预览→仅编辑切换正常
+
+## 第十阶段：多文档恢复后的预览白屏修复（2026-04-01）
+
+### 问题现象
+
+多文档工作区恢复或文档切换后，右侧预览区域会出现标题、副标题、轨道信息已经更新，但 `#alphaTab` 乐谱区域白屏的情况。
+
+### 根因分析
+
+问题不在于静态资源缺失，也不在于 CSS 遮挡，而在于 **预览视口复用条件判断错误**：
+
+1. `workspace-storage.ts` 会持久化每个文档的 `lastSuccessfulCode`
+2. 页面恢复工作区时，文档快照会把这个字段原样恢复
+3. `renderActiveDocument()` 仅根据 `lastSuccessfulCode` 与当前代码是否相似来判断 `reuseViewport`
+4. 但多文档架构下，右侧只有一个共享的 `#alphaTab` 容器；**代码相似不代表当前 DOM 就属于这个文档**
+5. 因此在页面恢复首帧或切换文档首帧时，可能会在一个刚被清空或属于其他文档的容器上错误地走 `reuseViewport: true`
+
+### 修复策略
+
+引入 **预览 DOM 归属状态**，将复用判断从“代码是否相似”升级为“代码相似且当前预览容器确实属于该文档”：
+
+- `types.ts` / `state.ts`
+  - 新增 `renderedDocumentId`
+  - 新增 `pendingRenderDocumentId`
+- `preview.ts`
+  - `clearPreview()` 时同步清空预览归属
+  - `renderFinished` 时记录本次真正渲染完成的文档 ID
+  - 新增 `isPreviewOwnedByDocument()` / `canReuseViewportForDocument()` / `requestRenderForDocument()`
+  - 文档切换、工作区恢复、回退到上次成功预览时，只在当前 DOM 真实归属于该文档时才允许复用视口
+  - 导入文件后继续强制全量渲染
+
+### 结果
+
+修复后：
+
+- 工作区恢复后的首帧渲染不会误复用空视口
+- 已解析但未真正绘制的“标题正常、谱面白屏”问题得到修正
+- 文档切换时不会再把其他文档的旧预览 DOM 当成当前文档的可复用视口
+
+### 本阶段验证
+
+- [x] 代码层已补齐预览归属状态与复用守卫
+- [x] `clearPreview()` / `renderFinished` / `renderActiveDocument()` / fallback 渲染路径已统一收口
+- [x] 本地类型检查通过
+- [ ] 针对白屏场景做浏览器回归验证
+
+---
+
+## 8. 预览白屏修复（第二轮）— `queuePreviewReflow` 时序竞争
+
+### 问题
+
+前一轮修复后浏览器中仍出现白屏：状态胶囊显示"预览已同步"、轨道面板正常，但谱面区域只有淡色背景和光标线，没有实际音符 SVG。
+
+### 浏览器运行时诊断
+
+通过控制台注入诊断脚本获取到以下关键数据：
+
+| 指标 | 值 | 含义 |
+|---|---|---|
+| `childElementCount` | 1 | 容器中只有 1 个子元素（wrapper div） |
+| `innerHTML length` | 691 | 有少量 HTML 但不含谱面 |
+| **`SVG count`** | **0** | **没有任何 SVG** — 白屏直接原因 |
+| `viewport width` | 610.5 | 正常 |
+| `alphaTab width` | 566.5 | 正常 |
+
+容器尺寸正常但 SVG 为 0，排除了"容器宽度为 0 导致空布局"的假设。
+
+### 根因分析
+
+初始化时序（`main.ts`）：
+
+```
+setViewMode(...)          // → queuePreviewReflow() → 90ms 后 api.render()
+setupMobileEnhancements()
+loadInitialWorkspace()    // → renderActiveDocument() → api.renderScore(score, ...)
+```
+
+`setViewMode()` 中的 `queuePreviewReflow()` 设置了 90ms 后执行 `state.api?.render()`。
+`loadInitialWorkspace()` 紧随其后触发 `renderScore(score, tracks, { reuseViewport: false })`。
+
+**竞争条件**：`renderScore()` 的异步渲染流水线尚未完成时，90ms 定时器触发的 `api.render()`（无参数重布局）打断了它，导致渲染产生了 wrapper div 但没有实际谱面 SVG。`renderFinished` 仍然被触发（渲染流程形式上完成），所以状态胶囊显示"预览已同步"，但 DOM 中没有任何音符内容。
+
+### 修复
+
+#### 修复 1：`state.ts` — `queuePreviewReflow` 增加守卫
+
+在 `queuePreviewReflow` 的定时回调中，检查 `pendingRenderDocumentId`。如果不为 null，说明有一个完整的 `renderScore()` 正在进行中，此时跳过 `render()` 避免干扰：
+
+```typescript
+export function queuePreviewReflow(): void {
+    window.setTimeout(() => {
+        if (state.pendingRenderDocumentId) {
+            return;  // 守卫：不打断正在进行的 renderScore
+        }
+        state.api?.render();
+    }, 90);
+}
+```
+
+#### 修复 2：`preview.ts` — `scoreLoaded` 导入分支统一入口
+
+`scoreLoaded` 回调中导入文件后的渲染仍直接调用 `api.renderScore()`，绕过了 `requestRenderForDocument()`，导致 `pendingRenderDocumentId` 不被设置，守卫无法生效：
+
+```typescript
+// 修复前：
+api.renderScore(score, targetDocument.activeTrackIndexes, { reuseViewport: false });
+
+// 修复后：
+requestRenderForDocument(targetDocument, score, { reuseViewport: false });
+```
+
+### 变更文件
+
+- `state.ts` — `queuePreviewReflow()` 增加 `pendingRenderDocumentId` 守卫
+- `preview.ts` — `scoreLoaded` 导入分支从直调 `api.renderScore()` 改为 `requestRenderForDocument()`
+
+### 验证
+
+- [x] Lint 0 错误
+- [x] TypeCheck 通过
+- [x] Build 通过
+- [ ] 浏览器回归验证
+
+### 遗留事项
+
+- 需做一次浏览器侧回归，重点验证：
+  - 刷新页面恢复工作区（首帧渲染不白屏）
+  - 切换已有预览缓存的多个标签页
+  - 轨道筛选后再切换文档
+  - 导入外部文件后刷新页面
+  - 视图模式切换（split/editor/preview）后的预览重排
+
+---
+
+## 9. 预览白屏修复（第三轮）— `clearPreview()` 误删 alphaTab 核心画布
+
+### 运行时证据
+
+用户在浏览器控制台进一步提供了 `#alphaTab` 的完整 DOM：
+
+- 唯一子元素为 `DIV.at-cursors`
+- `childCount = 3`（selection / bar cursor / beat cursor）
+- `#alphaTab.innerHTML` 中只有 cursor wrapper，没有 `.at-surface`，也没有任何谱面 placeholder / SVG
+
+这说明白屏并不是“谱面被 CSS 遮挡”，而是**alphaTab 的主渲染画布节点已经不在 DOM 中**，页面上只剩播放器 cursor 层。
+
+### 根因分析（修正后的最终结论）
+
+查阅 `@coderline/alphatab` 源码后确认：
+
+- `AlphaTabApiBase` 在初始化时会创建一个长期存在的 `canvasElement`
+- 该元素在浏览器端对应 DOM 节点 `.at-surface`
+- 后续每次渲染，alphaTab 都只是往 `.at-surface` 里追加 / 更新 placeholder 和结果片段
+- cursor 层 `.at-cursors` 是**独立直接挂在 `#alphaTab` 根节点下**的
+
+而当前业务代码中的 `clearPreview()` 使用了：
+
+```typescript
+// 修复前
+ dom.alphaTabRoot.innerHTML = '';
+```
+
+这会把 `#alphaTab` 下的所有子节点都清空，其中包括：
+
+- `.at-surface`（alphaTab 主画布）
+- `.at-cursors`（cursor 层）
+
+之后当 alphaTab 再次渲染时：
+
+- `state.api.canvasElement` 这个对象仍然存在，但它引用的是**已经从 DOM 中被摘掉的旧 `.at-surface` 节点**
+- `renderScore()` 会继续把谱面结果写入这个“离线节点”里
+- cursor 逻辑会重新在 `#alphaTab` 下插入 `.at-cursors`
+- 最终用户看到的就是：**只有 cursor，没有谱面**
+
+这与浏览器运行时观测结果完全一致。
+
+### 修复
+
+#### 修复 1：`preview.ts` — `clearPreview()` 不再清空整个根节点
+
+改为只清空 `.at-surface` 内部的已渲染内容，而不是清空整个 `#alphaTab`：
+
+- 先确保 `.at-surface` 已正确挂载到 `#alphaTab`
+- 只执行 `canvasElement.replaceChildren()`
+- 重置画布宽高
+- 临时隐藏 cursor 层，而不是删除它，避免破坏 alphaTab 内部持有的引用
+
+#### 修复 2：`preview.ts` — 渲染前确保 `.at-surface` 重新挂回 DOM
+
+新增 `ensureAlphaTabDomAttached()`：
+
+- 从 `state.api.canvasElement.element` 取出 alphaTab 的真实主画布节点
+- 如果它已经不在 `#alphaTab` 下，则重新 append 回去
+- 每次 `clearPreview()` 和 `requestRenderForDocument()` 前都执行这一步
+
+#### 修复 3：`preview.ts` — 预览归属判断从“根节点有子元素”改为“画布内有渲染内容”
+
+`isPreviewOwnedByDocument()` 从：
+
+```typescript
+state.renderedDocumentId === documentId && dom.alphaTabRoot.childElementCount > 0
+```
+
+改为检查 `.at-surface` 内是否真的有渲染结果，避免把常驻的基础节点或 cursor 层误判成“已有可复用预览”。
+
+### 变更文件
+
+- `preview.ts`
+  - 新增 `getAlphaTabCanvasElement()` / `getAlphaTabCursorElement()` / `ensureAlphaTabDomAttached()` / `hasRenderedPreviewDom()`
+  - `clearPreview()` 从“清空根节点”改为“清空 `.at-surface` 内容并隐藏 cursor”
+  - `requestRenderForDocument()` 在渲染前确保主画布已重新挂回 DOM
+  - `isPreviewOwnedByDocument()` 改为基于 `.at-surface` 的真实内容判断
+
+### 验证
+
+- [x] Lint 0 错误
+- [x] TypeCheck 通过
+- [x] Build 通过
+- [ ] 浏览器回归验证（待刷新页面确认）
+
+### 当前剩余验证项
+
+- 刷新当前页面，确认 `#alphaTab` 下重新出现 `.at-surface`
+- 确认恢复工作区后谱面主体正常显示
+- 确认切换文档 / 轨道筛选 / 导入文件后不再回归
+
+---
+
+## 10. 中间布局线拖拽改造（Split.js）
+
+### 问题
+
+虽然项目里已经接入了 `Split.js`，但用户侧仍然感觉中间布局线不可拖动 / 拖动不明显。静态分析后确认有三类问题叠加：
+
+1. `.panel { flex: 1 }` 会与 `Split.js` 写入的内联宽度冲突，导致左右面板继续按 flex 规则分配空间，拖拽效果被抵消。
+2. 现有实现只在 `onDragEnd` 时才调用 `editor.layout()` 和预览重排，拖拽过程中内容不跟手。
+3. 没有持久化 split 比例，刷新页面或切换视图后又回到默认值。
+
+### 根因
+
+当前 `setupSplit()` 确实初始化了：
+
+- `sizes: [46, 54]`
+- `gutterSize: 10`
+- `onDragEnd` 时做一次重排
+
+但真正控制宽度的是 `Split.js` 生成的内联样式，而 `.panel` 使用 `flex: 1` 等价于让 flexbox 抢回宽度控制权，所以视觉上会出现：
+
+- gutter 看起来存在，但拖拽反馈很弱
+- 拖动后尺寸变化不稳定
+- 松手后才突然发生跳变
+
+### 修复
+
+#### 修复 1：去掉面板宽度冲突
+
+把 `.panel` 从：
+
+```css
+.panel {
+    flex: 1;
+}
+```
+
+改成：
+
+```css
+.panel {
+    flex: 0 0 auto;
+}
+```
+
+让左右面板宽度完全由 `Split.js` 接管。
+
+#### 修复 2：增强 gutter 命中区与反馈
+
+把 gutter 从 `10px` 扩大到 `14px`，并增加 hover / active 态高亮，解决“能拖但不容易抓”的问题。
+
+#### 修复 3：拖拽过程中实时重排
+
+`main.ts` 中的 `setupSplit()` 改为：
+
+- `onDrag` 时通过 `requestAnimationFrame` 节流触发重排
+- 实时调用 `editor.layout()`
+- 预览优先调用 `api.triggerResize()`，如果当前类型上不可用则 fallback 到 `api.render()`
+- 若当前有 `pendingRenderDocumentId`，则跳过预览重排，避免打断正在进行的完整渲染
+
+#### 修复 4：持久化 split 比例
+
+新增 `STORAGE_KEYS.splitSizes`，并在 `state.ts` 中补充：
+
+- `getPreferredSplitSizes()`：读取并归一化保存的比例
+- `persistSplitSizes()`：在拖拽结束后保存当前比例
+- `setViewMode('split')`：恢复用户上次拖拽后的比例，而不是固定回到 `46 / 54`
+
+#### 修复 5：限制桌面端最小面板宽度
+
+`Split.js` 配置改为桌面端最小宽度保护：
+
+- `minSize: [280, 280]`
+
+避免用户误拖到其中一个面板几乎消失。
+
+### 变更文件
+
+- `constants.ts`
+  - 新增 `DEFAULT_SPLIT_SIZES`
+  - 新增 `MIN_SPLIT_PANEL_WIDTH`
+  - 新增 `SPLIT_GUTTER_SIZE`
+  - 新增 `STORAGE_KEYS.splitSizes`
+- `state.ts`
+  - 新增 split 比例读取、归一化、持久化逻辑
+  - `setViewMode('split')` 改为恢复上次比例
+- `main.ts`
+  - `setupSplit()` 改为使用持久化比例初始化
+  - 拖拽过程中实时重排编辑器与预览
+  - 拖拽结束后持久化比例
+- `styles.css`
+  - gutter 命中区和交互反馈增强
+  - `.panel` 改为 `flex: 0 0 auto`
+
+### 验证
+
+- [x] Lint 0 错误
+- [x] TypeCheck 通过
+- [x] Build 通过
+- [ ] 浏览器手动回归验证
+
+### 回归关注点
+
+- 桌面宽屏下，gutter 可左右拖动
+- 拖动过程中编辑器与预览区同步跟手变化
+- 切换 `仅编辑` / `仅预览` 后再切回 `拆分`，恢复上次比例
+- 刷新页面后仍保留上次拖拽后的分栏比例
+- 窄屏（≤ `980px`）下 gutter 仍按既有设计隐藏

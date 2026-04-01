@@ -1,30 +1,23 @@
-/**
- * alphaTab Realtime Editor — 入口编排器
- *
- * 该文件只负责：
- * 1. 导入各功能模块
- * 2. 按依赖顺序调度初始化
- * 3. 处理顶层异常
- *
- * 具体功能实现分别在：
- * - state.ts    — 应用状态 + DOM 引用 + 状态变更辅助
- * - editor.ts   — Monaco 编辑器初始化 / 主题 / LSP / 诊断
- * - preview.ts  — alphaTab 预览渲染 / 轨道管理 / 渲染调度
- * - toolbar.ts  — 顶部工具栏事件 / 文件操作 / 示例加载
- * - transport.ts — 播放控制 / 速度 / 缩放 / 布局 / 滚动 / 时间轴
- * - utils.ts    — 通用工具函数
- * - constants.ts — 常量 / 示例 / 配置映射
- * - types.ts    — 公共类型定义
- */
-
 import './styles.css';
 import Split from 'split.js';
-import { STORAGE_KEYS } from './constants';
+import {
+    MIN_SPLIT_PANEL_WIDTH,
+    SPLIT_GUTTER_SIZE,
+    STORAGE_KEYS
+} from './constants';
+import { setupDocumentTabs, handleActiveDocumentContentChanged, loadInitialWorkspace } from './documents';
 import { setupEditor } from './editor';
 import { setupMobileEnhancements } from './mobile';
-import { setupPreview, scheduleRender } from './preview';
-import { dom, setStatus, setViewMode, state } from './state';
-import { loadInitialDocument, setupToolbar } from './toolbar';
+import { scheduleRender, setupPreview } from './preview';
+import {
+    dom,
+    getPreferredSplitSizes,
+    persistSplitSizes,
+    setStatus,
+    setViewMode,
+    state
+} from './state';
+import { setupToolbar } from './toolbar';
 import { setupTransport } from './transport';
 import type { ViewMode } from './types';
 import { escapeHtml, getErrorMessage, readStorage } from './utils';
@@ -33,66 +26,84 @@ void initialize();
 
 async function initialize(): Promise<void> {
     try {
-        setStatus('muted', '正在初始化', '加载编辑器与预览能力');
+        setStatus('muted', '正在初始化', '加载编辑器与多文档工作区');
 
         setupSplit();
         setupPreview();
-        await setupEditor(() => scheduleRender());
+        await setupEditor(() => {
+            handleActiveDocumentContentChanged();
+            scheduleRender();
+        });
+        setupDocumentTabs();
         setupToolbar();
         setupTransport();
         setupDiagnosticsToggle();
         setupTrackDockToggle();
 
         setViewMode((readStorage(STORAGE_KEYS.view) as ViewMode | null) ?? 'split');
-
-        // 移动端增强：放在 setViewMode 之后，以便正确判断是否需要覆盖 split 模式
         setupMobileEnhancements();
-
-        loadInitialDocument();
-
-        // 初始化完成：移除 loading overlay，渐入显示主界面
+        loadInitialWorkspace();
         dismissLoading();
     } catch (error) {
         setStatus('error', '初始化失败', getErrorMessage(error));
         dom.diagnosticsList.innerHTML = `<li data-severity="error">${escapeHtml(getErrorMessage(error))}</li>`;
-
-        // 即使初始化失败也显示界面，让用户看到错误信息
         dismissLoading();
     }
 }
 
-/** 移除 loading overlay 并渐入显示主界面 */
 function dismissLoading(): void {
     const loading = document.getElementById('appLoading');
     const shell = document.getElementById('appShell');
 
-    // 先让主界面渐入
     shell?.classList.add('is-ready');
 
-    // loading overlay 淡出后移除 DOM
     if (loading) {
         loading.style.transition = 'opacity 0.3s ease';
         loading.style.opacity = '0';
         loading.addEventListener('transitionend', () => loading.remove(), { once: true });
-        // 兜底：如果 transitionend 未触发，400ms 后强制移除
-        setTimeout(() => loading.remove(), 400);
+        window.setTimeout(() => loading.remove(), 400);
     }
 }
 
 function setupSplit(): void {
-    state.split = Split(['#editorPane', '#previewPane'], {
-        sizes: [46, 54],
-        minSize: [0, 0],
-        gutterSize: 10,
-        snapOffset: 16,
-        onDragEnd: () => {
-            state.api?.render();
+    let reflowFrame = 0;
+    const scheduleSplitReflow = (): void => {
+        if (reflowFrame !== 0) {
+            return;
+        }
+
+        reflowFrame = window.requestAnimationFrame(() => {
+            reflowFrame = 0;
             state.editor?.layout();
+
+            if (state.pendingRenderDocumentId) {
+                return;
+            }
+
+            const api = state.api as ({ triggerResize?: () => void; render?: () => void }) | null;
+            if (api?.triggerResize) {
+                api.triggerResize();
+                return;
+            }
+
+            api?.render?.();
+        });
+    };
+
+    state.split = Split(['#editorPane', '#previewPane'], {
+        sizes: getPreferredSplitSizes(),
+        minSize: [MIN_SPLIT_PANEL_WIDTH, MIN_SPLIT_PANEL_WIDTH],
+        gutterSize: SPLIT_GUTTER_SIZE,
+        snapOffset: 24,
+        onDrag: () => {
+            scheduleSplitReflow();
+        },
+        onDragEnd: () => {
+            persistSplitSizes(state.split?.getSizes() ?? getPreferredSplitSizes());
+            scheduleSplitReflow();
         }
     });
 }
-
-// ─── 诊断面板折叠 ────────────────────────────────────────────
 
 function setupDiagnosticsToggle(): void {
     const toggle = dom.diagnosticsToggle;
@@ -106,8 +117,6 @@ function setupDiagnosticsToggle(): void {
         toggle.setAttribute('aria-expanded', String(!isCollapsed));
     });
 }
-
-// ─── 轨道面板折叠 ────────────────────────────────────────────
 
 function setupTrackDockToggle(): void {
     const toggle = dom.trackDockToggle;

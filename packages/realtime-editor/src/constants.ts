@@ -6,11 +6,16 @@ import type { ExampleDefinition, ExampleId } from './types';
  * 与 CSS `@media (max-width: 980px)` 保持一致
  */
 export const NARROW_BREAKPOINT = 980;
+export const DEFAULT_SPLIT_SIZES = [46, 54] as const;
+export const MIN_SPLIT_PANEL_WIDTH = 280;
+export const SPLIT_GUTTER_SIZE = 14;
 
 export const STORAGE_KEYS = {
+    workspace: 'alphatab.realtime-editor.workspace',
     document: 'alphatab.realtime-editor.document',
     view: 'alphatab.realtime-editor.view',
-    example: 'alphatab.realtime-editor.example'
+    example: 'alphatab.realtime-editor.example',
+    splitSizes: 'alphatab.realtime-editor.splitSizes'
 } as const;
 
 export const EXAMPLES: Record<ExampleId, ExampleDefinition> = {
