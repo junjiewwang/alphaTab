@@ -388,6 +388,52 @@ docker compose up -d
 
 ---
 
+## 第八阶段：容器部署后播放按钮不可用修复（2026-04-01）
+
+### 问题描述
+
+容器部署后页面可以正常打开，乐谱也能正常渲染，但预览区的“播放 / 停止”按钮始终不可点击；同一份代码在本地 `vite dev` 环境下播放功能正常。
+
+### 根因分析
+
+排查后确认问题不在按钮事件绑定、样式遮挡或 Nginx 静态资源配置本身，而在 **生产构建缺少 alphaTab 播放器 worker 产物**：
+
+1. `playPauseButton` / `stopButton` 仅在 `api.playerReady` 事件触发后才会解除 `disabled`
+2. `core.useWorkers = false` 只关闭渲染 worker，不会关闭播放器内部的 synth worker
+3. 当前 `realtime-editor` 的 `vite.config.ts` 未接入 alphaTab 官方提供的 Vite worker/import-meta 插件链
+4. 因此 `vite build` 后页面会请求 `assets/alphaTab.worker.ts`，但构建产物中并没有对应文件，浏览器返回 `404`
+5. worker 初始化失败后，播放器不会进入 `playerReady`，按钮就一直保持禁用状态
+
+### 修复方案
+
+- 在 `realtime-editor` 的 `vite` 配置中接入 alphaTab 的三段插件链：
+  - `detectionGlobalPlugin()`
+  - `importMetaUrlPlugin({})`
+  - `workerPlugin({})`
+- 保留现有 `realtimeEditorAssets()`，继续负责字体与 soundfont 资源复制
+- 更新 `Dockerfile`，把 `packages/vite` 的依赖元数据与源码纳入容器构建上下文，确保容器内 `vite build` 也能运行同样的 worker 打包逻辑
+
+### 本次改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `vite.config.ts` | 接入 alphaTab 的 Vite worker 插件链 |
+| `Dockerfile` | 纳入 `packages/vite` 与 `public` 目录的构建输入 |
+| `index.html` | 显式声明页面 favicon |
+| `public/favicon.png` | 复用仓库现有 logo 作为站点图标 |
+| `IMPLEMENTATION.md` | 记录本次问题、根因、修复方案与验证进展 |
+
+### 验证进展
+
+- [x] 复现问题：静态部署场景下播放按钮保持禁用
+- [x] 定位根因：`alphaTab.worker.ts` 请求 404，`playerReady` 未触发
+- [x] 本地构建验证：`dist/assets/` 已产出 `alphaTab.worker-*` / `alphaTab.worklet-*`
+- [x] 静态部署验证：播放 / 停止按钮恢复可点击，`soundfont` 正常加载
+- [x] 容器构建与运行验证：`Dockerfile` 构建成功，Nginx 容器内页面按钮恢复可点击
+- [x] 页面图标验证：显式 `favicon.png` 请求返回 `200`，不再出现默认 `favicon.ico` 的 `404`
+
+---
+
 ## 当前遗留问题 / 后续优化
 
 ### 待优化

@@ -23,6 +23,9 @@ COPY packages/lsp/tsconfig.json ./packages/lsp/
 COPY packages/alphatex/package.json ./packages/alphatex/
 COPY packages/alphatex/tsconfig.json ./packages/alphatex/
 
+COPY packages/vite/package.json ./packages/vite/
+COPY packages/vite/tsconfig.json ./packages/vite/
+
 # 2) 安装依赖（单独成层，最大化缓存）
 RUN --mount=type=cache,target=/root/.npm npm install --include=optional --verbose
 
@@ -30,6 +33,7 @@ RUN --mount=type=cache,target=/root/.npm npm install --include=optional --verbos
 COPY packages/realtime-editor/vite.config.ts ./packages/realtime-editor/
 COPY packages/realtime-editor/vite.plugin.assets.ts ./packages/realtime-editor/
 COPY packages/realtime-editor/index.html ./packages/realtime-editor/
+COPY packages/realtime-editor/public/ ./packages/realtime-editor/public/
 COPY packages/realtime-editor/types/ ./packages/realtime-editor/types/
 COPY packages/realtime-editor/src/ ./packages/realtime-editor/src/
 
@@ -39,6 +43,7 @@ COPY packages/alphatab/font/ ./packages/alphatab/font/
 COPY packages/monaco/src/ ./packages/monaco/src/
 COPY packages/lsp/src/ ./packages/lsp/src/
 COPY packages/alphatex/src/ ./packages/alphatex/src/
+COPY packages/vite/src/ ./packages/vite/src/
 
 # 4) 构建
 RUN npm run build --workspace=packages/realtime-editor

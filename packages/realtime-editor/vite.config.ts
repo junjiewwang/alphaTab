@@ -2,6 +2,9 @@ import path from 'node:path';
 import url from 'node:url';
 import { defineConfig } from 'vite';
 import tsconfigPaths from 'vite-tsconfig-paths';
+import { detectionGlobalPlugin } from '../vite/src/detectionGlobalPlugin';
+import { importMetaUrlPlugin } from '../vite/src/importMetaPlugin';
+import { workerPlugin } from '../vite/src/workerPlugin';
 import realtimeEditorAssets from './vite.plugin.assets';
 
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url));
@@ -41,7 +44,13 @@ export default defineConfig({
     resolve: {
         alias: workspaceAliases
     },
-    plugins: [tsconfigPaths(), realtimeEditorAssets()],
+    plugins: [
+        detectionGlobalPlugin(),
+        importMetaUrlPlugin({}),
+        workerPlugin({}),
+        tsconfigPaths(),
+        realtimeEditorAssets()
+    ],
     server: {
         open: '/'
     },
