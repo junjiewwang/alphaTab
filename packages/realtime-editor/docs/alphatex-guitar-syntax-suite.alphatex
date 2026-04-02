@@ -1,0 +1,124 @@
+// ============================================================
+// AlphaTex Guitar Syntax Suite
+// A handbook-style guitar score demonstrating guitar-relevant syntax.
+// ============================================================
+
+\title "AlphaTex Guitar Syntax Suite"
+\subtitle "Handbook Style Demonstration for Guitar"
+\artist "CodeBuddy"
+\album "AlphaTex Learning Set"
+\music "CodeBuddy"
+\words "Documentation Demo"
+\wordsAndMusic ("Words & Music: %WORDS% / %MUSIC%")
+\copyright "Educational example for alphaTab / AlphaTex users"
+\instructions "Use this score section-by-section. Solo each track and copy small fragments into your own experiments."
+\notices "This example prioritizes guitar-relevant AlphaTex syntax: score/staff/bar/beat/note metadata, chords, rhythm, dynamics and guitar techniques."
+\defaultSystemsLayout 4
+
+// ============================================================
+// Track 1: Rhythm Guitar
+// Covers: track/staff/tuning/capo/chords/sections/time-signature/tempo/
+// triplet-feel/lyrics/chord annotations/dynamics/text/tuplets/rasgueado/barre
+// ============================================================
+\track "Rhythm Guitar" "Rhy." { color "#5B8FF9" defaultSystemsLayout 4 }
+\staff {score tabs}
+\tuning (E4 B3 G3 D3 A2 E2) { label "Standard Tuning" }
+\capo 2
+\lyrics "Al -- pha -- Tex gui -- tar hand -- book now"
+\chord ("Em7" 0 0 0 2 2 0)
+\chord ("Cadd9" 3 3 0 2 3 x)
+\chord ("G" 3 3 0 0 2 3)
+\chord ("Dsus4" 3 3 2 0 x x)
+\chord ("Bm7" 2 3 2 4 2 x) { firstFret 2 barre 2 }
+\chord ("Fmaj7" 0 1 2 3 x x)
+
+\section "A" "Open Chord Foundation"
+\ts 4 4
+\tempo 88 "Calm Pick"
+.
+:4
+(0.1 0.2 0.3 2.4 2.5 0.6){ch "Em7" dy mp txt "open voicing"} 0.3{lr} 2.4{lr} 0.6{lr} |
+(3.1 3.2 0.3 2.4 3.5){ch "Cadd9" dy mp} 0.3 2.4 3.5 |
+(3.1 3.2 0.3 0.4 2.5 3.6){ch "G" dy mf} 0.4 2.5 3.6 |
+(3.1 3.2 2.3 0.4){ch "Dsus4" dy mf txt "let ring"} 2.3{lr} 0.4{lr} r |
+
+\section "B" "Rhythm Feel, Tuplets and Rasgueado"
+\tf triplet8th
+:8
+0.6{pm tu 3 txt "triplet PM"} * 3 2.5{pm tu 3} * 3 |
+(2.1 4.2 4.3 4.4 2.5 x.6){ch "Bm7" barre 2 full rasg amii dy f} r r r r r r r |
+\tempo (104 "Push")
+x.6{x beam down} x.6{x} 0.6{pm} 0.6 2.5{pm} 2.5 3.4{txt "backbeat"} 3.4 |
+(0.1 1.2 2.3 3.4){ch "Fmaj7" dy mp} (3.1 3.2 2.3 0.4){ch "Dsus4" dy mp} r r |
+
+\section "C" "Lead Space and Support"
+:4
+(0.1 0.2 0.3 2.4 2.5 0.6){ch "Em7" dy p} r r r |
+(3.1 3.2 0.3 2.4 3.5){ch "Cadd9" dy p} r r r |
+(3.1 3.2 0.3 0.4 2.5 3.6){ch "G" dy mp} r r r |
+(3.1 3.2 2.3 0.4){ch "Dsus4" dy mp fermata medium 2} r r r |
+
+\section "D" "Cadence and Outro"
+\tf none
+:8
+0.6{pm} 0.6 2.5 2.5 0.4{lyrics "guide"} 0.3{lyrics "score"} 2.4{lyrics "for"} 0.6{lyrics "all"} |
+(2.1 4.2 4.3 4.4 2.5 x.6){ch "Bm7" barre 2 half txt "barre"} r r r r r r r |
+(0.1 0.2 0.3 2.4 2.5 0.6){ch "Em7" dy pp} r r 0.6{lr} r r r |
+(0.1 0.2 0.3 2.4 2.5 0.6){ch "Em7" dy p fermata long 4 txt "Fine"} r r r r r r r |
+
+// ============================================================
+// Track 2: Lead Guitar
+// Covers: grace notes, hammer-on/pull-off, string labels, left/right hand
+// fingering, slides, dead notes, harmonics, vibrato, bends, ties, slurs,
+// trill, tremolo bar, beam direction, staccato.
+// ============================================================
+\track "Lead Guitar" "Lead" { color "#F6BD60" defaultSystemsLayout 4 }
+\staff {score tabs}
+\tuning (E4 B3 G3 D3 A2 E2)
+.
+:4
+r r r r |
+r r r r |
+r r r r |
+r r r r |
+
+:8
+r r 7.2{gr ob} 8.2 10.2{h} 12.2 10.2{h} 8.2 |
+7.1{string rf 2 lf 1} 8.1{string rf 3 lf 2} 10.1{string rf 4 lf 4} 12.1{v} 10.1{vw} 8.1 7.1 5.1 |
+7.2{sl} 9.2 7.2{ss} 5.2 5.2{sib} 5.2{sia} 5.2{sou} 5.2{sod} |
+7.3{pm st} x.3{x} 7.3{nh} 7.3{ah 12} 7.3{ph 12} 7.3{th 12} 7.3{sh 12} r |
+
+:4
+7.2{b (0 4) txt "bend"} 7.2{b (0 4 0 8)} 10.2{tr 12 32} 8.2 |
+7.2{slur l1} 8.2 10.2 12.2{slur l1} |
+12.1{tb (0 -4 0 -8)} r 10.1{tbe (0 0 10 4 30 8 60 0)} r |
+12.1{dy f txt "peak"} 10.1{dy mf} 8.1{dy mp} 7.1{dy p} |
+
+:8
+5.2{lr} 7.2{lr} 8.2{lr} 10.2{lr} 12.2 -.2 10.2 8.2 |
+7.2{beam up} 8.2{beam up} 10.2{beam down} 12.2{beam down} 10.2 8.2 7.2 r |
+12.1{fermata short 2} r r r r r r r |
+r r r r r r r r |
+
+// ============================================================
+// Track 3: Poly Voice Lab (appendix track)
+// Covers: \voiceMode and \voice with a compact two-voice guitar texture.
+// This track is pedagogical rather than musical.
+// ============================================================
+\track "Poly Voice Lab" "Poly" { color "#8D6BFF" defaultSystemsLayout 4 }
+\staff {score tabs}
+\tuning (E4 B3 G3 D3 A2 E2)
+\voiceMode staffWise
+.
+\voice
+:4
+0.6 0.6 0.6 0.6 |
+2.4 2.4 2.4 2.4 |
+r r r r |
+r r r r |
+\voice
+:4
+3.3 3.3 3.3 3.3 |
+0.2 0.2 0.2 0.2 |
+r r r r |
+r r r r |
