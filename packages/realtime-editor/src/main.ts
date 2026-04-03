@@ -126,7 +126,7 @@ function setupTrackDockToggle(): void {
     }
 
     toggle.addEventListener('click', () => {
-        const isCollapsed = dock.classList.toggle('is-collapsed');
-        toggle.setAttribute('aria-expanded', String(!isCollapsed));
+        const isExpanded = dock.classList.toggle('is-expanded');
+        toggle.setAttribute('aria-expanded', String(isExpanded));
     });
 }

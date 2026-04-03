@@ -74,10 +74,10 @@ input {
 .app-shell {
     position: relative;
     display: grid;
-    grid-template-rows: auto auto 1fr;
-    gap: 10px;
+    grid-template-rows: auto 1fr;
+    gap: 6px;
     height: 100vh;
-    padding: 14px;
+    padding: 10px;
     /* 初始隐藏，由 JS 添加 .is-ready 后渐入 */
     opacity: 0;
     transition: opacity 0.3s ease;
@@ -89,8 +89,8 @@ input {
 
 .app-shell__backdrop {
     position: absolute;
-    inset: 14px;
-    border-radius: 24px;
+    inset: 10px;
+    border-radius: 20px;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
     border: 1px solid rgba(255, 255, 255, 0.08);
     box-shadow: var(--shadow);
@@ -108,58 +108,49 @@ input {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Topbar — 紧凑化
+   Topbar — 单行合并布局
    ═══════════════════════════════════════════════════════════ */
 
 .topbar {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
-    padding: 8px 14px;
+    gap: 10px;
+    padding: 6px 12px;
+    min-height: 0;
 }
 
 .topbar__brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-shrink: 0;
-}
-
-.topbar__title {
     margin: 0;
     font-family: 'Noto Serif', serif;
     font-weight: 700;
-    font-size: clamp(18px, 2vw, 26px);
+    font-size: 16px;
     letter-spacing: 0.01em;
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .topbar__actions {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
-    flex: 1;
-    min-width: 0;
+    flex-shrink: 0;
 }
 
+/* 标签栏内联于 topbar */
 .document-tabs {
-    position: relative;
-    z-index: 5;
     display: flex;
     min-width: 0;
-    padding: 0 14px;
+    flex: 1;
 }
 
 .document-tab-list {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     min-width: 0;
     width: 100%;
     overflow-x: auto;
-    padding: 2px 0 4px;
+    padding: 2px 0;
     scrollbar-width: thin;
 }
 
@@ -168,11 +159,12 @@ input {
     align-items: center;
     gap: 2px;
     min-width: 0;
-    max-width: 320px;
+    max-width: 240px;
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 10px;
     background: rgba(255, 255, 255, 0.05);
     transition: border-color 160ms ease, background 160ms ease;
+    flex-shrink: 0;
 }
 
 .document-tab:hover {
@@ -196,9 +188,9 @@ input {
 .document-tab__select {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     min-width: 0;
-    padding: 8px 8px 8px 12px;
+    padding: 6px 6px 6px 10px;
     cursor: pointer;
 }
 
@@ -206,12 +198,12 @@ input {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
-    margin: 0 6px 0 0;
+    width: 22px;
+    height: 22px;
+    margin: 0 4px 0 0;
     border-radius: 999px;
     cursor: pointer;
-    font-size: 15px;
+    font-size: 13px;
     color: var(--text-muted);
     transition: background 140ms ease, color 140ms ease;
 }
@@ -228,57 +220,62 @@ input {
 }
 
 .document-tab__label {
-    max-width: 220px;
+    max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
+    font-size: 12px;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Panel Meta — 面板内乐谱标题/副标题
+   Panel Infobar — 编辑器面板信息栏（乐谱标题/副标题/摘要）
    ═══════════════════════════════════════════════════════════ */
 
-.panel__meta {
+.panel__infobar {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
-    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent);
+    min-height: 0;
+    overflow: hidden;
 }
 
-.panel__meta strong {
+.panel__infobar strong {
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 260px;
+    max-width: 200px;
+    flex-shrink: 0;
 }
 
-.panel__meta span {
+.panel__infobar span {
     color: var(--text-muted);
     font-size: 11px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 260px;
+    min-width: 0;
 }
 
 .status-pill {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     width: fit-content;
-    padding: 5px 10px;
+    padding: 4px 10px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.07);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .status-pill::before {
@@ -297,29 +294,14 @@ input {
 .status-pill[data-tone='warning'] { color: var(--accent-warning); }
 .status-pill[data-tone='muted'] { color: var(--text-muted); }
 
-.panel__eyebrow {
-    margin: 0 0 4px;
-    font-size: 11px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--accent);
-}
-
-.panel__header h2 {
-    margin: 0;
-    font-family: 'Noto Serif', serif;
-    font-weight: 700;
-    font-size: 16px;
-    letter-spacing: 0.01em;
-}
-
 .panel__hint {
     margin: 0;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: 11px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -329,8 +311,8 @@ input {
 .toolbar-group,
 .segmented {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    flex-wrap: nowrap;
+    gap: 4px;
     align-items: center;
 }
 
@@ -339,13 +321,17 @@ input {
 .track-chip {
     appearance: none;
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: 8px;
     background: rgba(255, 255, 255, 0.06);
     color: var(--text);
-    padding: 7px 12px;
-    font-size: 13px;
+    padding: 5px 8px;
+    font-size: 12px;
     cursor: pointer;
     transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
 }
 
 .toolbar-button:hover,
@@ -364,13 +350,14 @@ input {
 .toolbar-select {
     appearance: none;
     border: 1px solid var(--line);
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.06) url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='rgba(247,242,232,0.5)' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06) url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='rgba(247,242,232,0.5)' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 8px center;
     color: var(--text);
-    padding: 7px 30px 7px 12px;
-    font-size: 13px;
+    padding: 5px 26px 5px 8px;
+    font-size: 12px;
     cursor: pointer;
     transition: border-color 160ms ease, background-color 160ms ease;
+    min-width: 0;
 }
 
 .toolbar-select:hover {
@@ -557,8 +544,8 @@ input {
 }
 
 .segmented {
-    padding: 3px;
-    border-radius: 14px;
+    padding: 2px;
+    border-radius: 10px;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--line);
 }
@@ -566,37 +553,13 @@ input {
 .segmented__button {
     border: 0;
     background: transparent;
-    padding: 7px 10px;
-    font-size: 12px;
+    padding: 5px 8px;
+    font-size: 11px;
 }
 
 .segmented__button.is-active {
     background: linear-gradient(135deg, rgba(141, 216, 255, 0.22), rgba(241, 183, 94, 0.18));
     color: #ffffff;
-}
-
-.toolbar-field {
-    display: inline-grid;
-    gap: 4px;
-    min-width: 110px;
-    color: var(--text-muted);
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-
-.toolbar-field select {
-    min-width: 0;
-    border-radius: 10px;
-    border: 1px solid var(--line);
-    background: rgba(255, 255, 255, 0.07);
-    color: var(--text);
-    padding: 7px 10px;
-    font-size: 13px;
-}
-
-.toolbar-field--dark select {
-    background: rgba(255, 255, 255, 0.08);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -609,7 +572,7 @@ input {
     min-height: 0;
     min-width: 0;
     overflow: hidden;
-    padding: 0 10px;
+    padding: 0 6px;
 }
 
 .gutter {
@@ -638,26 +601,20 @@ input {
     flex: 0 0 auto;
     min-width: 0;
     min-height: 0;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
+    display: flex;
+    flex-direction: column;
     border: 1px solid var(--line);
     background: linear-gradient(180deg, var(--bg-panel), rgba(10, 14, 29, 0.95));
-    border-radius: 20px;
+    border-radius: 16px;
     overflow: hidden;
 }
 
-.panel__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: end;
-    gap: 12px;
-    padding: 12px 16px 10px;
-    border-bottom: 1px solid var(--line);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent);
+.panel--editor {
+    height: 100%;
 }
 
-.panel__header--preview {
-    background: linear-gradient(180deg, rgba(241, 183, 94, 0.08), transparent);
+.panel--preview {
+    height: 100%;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -672,8 +629,10 @@ input {
 }
 
 .editor-surface {
+    flex: 1 1 auto;
     overflow: hidden;
     background: linear-gradient(180deg, rgba(7, 11, 22, 0.9), rgba(6, 8, 20, 1));
+    min-height: 120px;
 }
 
 #editor {
@@ -688,6 +647,8 @@ input {
 .diagnostics-panel {
     border-top: 1px solid var(--line);
     background: rgba(7, 10, 21, 0.9);
+    overflow: hidden;
+    max-height: 260px;
 }
 
 .diagnostics-panel__toggle {
@@ -793,40 +754,52 @@ input {
    ═══════════════════════════════════════════════════════════ */
 
 .preview-stage {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 12px;
-    padding: 12px;
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
     overflow: hidden;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Track Dock — 可折叠
+   Track Dock — 浮动抽屉（绝对定位）
    ═══════════════════════════════════════════════════════════ */
 
 .track-dock {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 10;
     display: grid;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: auto 0fr;
     min-height: 0;
-    width: 200px;
-    border-radius: 16px;
-    border: 1px solid var(--line);
-    background: rgba(255, 255, 255, 0.04);
-    transition: width 200ms ease;
+    width: auto;
+    min-width: 180px;
+    max-width: 220px;
+    border-radius: 12px;
+    border: 1px solid var(--line-strong);
+    background: var(--bg-panel);
+    backdrop-filter: blur(20px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    transition: grid-template-rows 200ms ease;
+}
+
+.track-dock.is-expanded {
+    grid-template-rows: auto 1fr;
 }
 
 .track-dock__toggle {
     appearance: none;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     width: 100%;
-    padding: 10px 14px;
+    padding: 8px 12px;
     border: 0;
-    border-bottom: 1px solid var(--line);
     background: transparent;
     color: var(--text);
-    font-size: 13px;
+    font-size: 12px;
     cursor: pointer;
     transition: background 160ms ease;
 }
@@ -835,56 +808,42 @@ input {
     background: rgba(255, 255, 255, 0.04);
 }
 
+.track-dock__icon {
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
 .track-dock__badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 20px;
-    height: 20px;
-    padding: 0 6px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
     border-radius: 999px;
     background: rgba(141, 216, 255, 0.15);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     color: var(--accent);
-}
-
-.track-dock__chevron {
     margin-left: auto;
-    transition: transform 200ms ease;
-    color: var(--text-muted);
 }
 
 .track-dock__body {
     min-height: 0;
     overflow: hidden;
-    transition: max-height 200ms ease, opacity 200ms ease;
-    opacity: 1;
 }
 
-.track-dock.is-collapsed {
-    width: auto;
-}
-
-.track-dock.is-collapsed .track-dock__body {
-    max-height: 0;
-    opacity: 0;
-}
-
-.track-dock.is-collapsed .track-dock__chevron {
-    transform: rotate(-90deg);
-}
-
-.track-dock.is-collapsed .track-dock__toggle {
-    border-bottom: 0;
+.track-dock.is-expanded .track-dock__toggle {
+    border-bottom: 1px solid var(--line);
 }
 
 .track-dock__list {
     display: grid;
     align-content: start;
-    gap: 8px;
-    padding: 12px;
+    gap: 6px;
+    padding: 8px;
     overflow: auto;
+    max-height: 280px;
 }
 
 .track-dock__empty {
@@ -895,18 +854,18 @@ input {
 
 .track-chip {
     display: grid;
-    gap: 4px;
+    gap: 3px;
     text-align: left;
-    padding: 10px 12px;
+    padding: 8px 10px;
 }
 
 .track-chip strong {
-    font-size: 12px;
+    font-size: 11px;
 }
 
 .track-chip span {
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: 10px;
 }
 
 .track-chip.is-active {
@@ -924,9 +883,8 @@ input {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    border-radius: 20px;
+    flex: 1 1 auto;
     background: linear-gradient(180deg, rgba(249, 243, 232, 0.98), rgba(243, 233, 217, 0.96));
-    border: 1px solid rgba(255, 255, 255, 0.12);
     overflow: hidden;
 }
 
@@ -960,10 +918,10 @@ input {
 }
 
 .preview-card__scroller {
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
-    padding: 24px 22px 36px;
+    padding: 16px 14px 24px;
 }
 
 .preview-card__sheet {
@@ -976,39 +934,44 @@ input {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   Transport — 内嵌于预览面板底部
+   Transport — 精简单行
    ═══════════════════════════════════════════════════════════ */
 
 .transport {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 14px;
+    display: flex;
+    gap: 10px;
     align-items: center;
-    padding: 10px 14px;
+    padding: 6px 10px;
     border-top: 1px solid var(--line);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent);
 }
 
-.transport > * {
-    position: relative;
-    z-index: 1;
+.transport__playback {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-shrink: 0;
 }
 
-.transport__left,
-.transport__right {
+.transport__timeline {
+    flex: 1;
+    min-width: 0;
+}
+
+.transport__controls {
     display: flex;
-    gap: 8px;
+    gap: 4px;
     align-items: center;
-    flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
 .transport__button {
-    border-radius: 10px;
+    border-radius: 8px;
     border: 1px solid var(--line-strong);
     background: rgba(255, 255, 255, 0.08);
     color: var(--text);
-    padding: 7px 12px;
-    font-size: 13px;
+    padding: 4px 10px;
+    font-size: 12px;
     cursor: pointer;
 }
 
@@ -1029,7 +992,7 @@ input {
 
 .timeline {
     position: relative;
-    height: 10px;
+    height: 8px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1049,6 +1012,12 @@ input {
 
 .workspace[data-view='editor'] #previewPane {
     display: none;
+}
+
+.workspace[data-view='editor'] #editorPane,
+.workspace[data-view='preview'] #previewPane {
+    flex: 1 1 auto;
+    width: auto !important;
 }
 
 .workspace[data-view='editor'] .gutter {
@@ -1154,17 +1123,8 @@ input {
    ═══════════════════════════════════════════════════════════ */
 
 @media (max-width: 1320px) {
-    .preview-stage {
-        grid-template-columns: 1fr;
-    }
-
-    .track-dock {
-        width: 100%;
-        max-height: 200px;
-    }
-
-    .track-dock.is-collapsed {
-        width: 100%;
+    .transport__controls {
+        display: none;
     }
 }
 
@@ -1176,24 +1136,21 @@ input {
     }
 
     .topbar {
-        flex-direction: column;
-        align-items: stretch;
+        flex-wrap: wrap;
+        gap: 6px;
     }
 
-    .topbar__actions {
-        flex-wrap: wrap;
+    .document-tabs {
+        order: 10;
+        flex-basis: 100%;
     }
 
     .toolbar-divider {
         display: none;
     }
 
-    .document-tabs {
-        padding: 0 14px;
-    }
-
     .document-tab__label {
-        max-width: 180px;
+        max-width: 140px;
     }
 
     /* 窄屏下隐藏拆分按钮：水平 split 已不可用 */
@@ -1203,7 +1160,7 @@ input {
 
     .workspace {
         flex-direction: column;
-        padding-bottom: 8px;
+        padding-bottom: 6px;
     }
 
     .gutter {
@@ -1212,21 +1169,20 @@ input {
 
     /* 窄屏下 workspace 是纵向堆叠（flex-direction: column），
        面板宽度应为 100%。使用 !important 覆盖 Split.js 初始化时
-       设置的内联 width 样式（如 width: calc(99.36% - 5px)），
-       避免面板宽度被 Split.js 的水平分割逻辑干扰。 */
+       设置的内联 width 样式。 */
     .panel {
         width: 100% !important;
-        min-height: 420px;
+        min-height: 380px;
     }
 
     .transport {
-        grid-template-columns: 1fr;
-        gap: 8px;
-    }
-
-    .transport__right {
         flex-wrap: wrap;
         gap: 6px;
+    }
+
+    .transport__timeline {
+        flex-basis: 100%;
+        order: 10;
     }
 }
 
@@ -1241,91 +1197,75 @@ input {
         padding: 4px;
         gap: 4px;
         height: 100vh;
-        height: 100dvh; /* 使用 dvh 适配移动端地址栏 */
+        height: 100dvh;
         overflow: hidden;
     }
 
     .app-shell__backdrop {
         inset: 4px;
-        border-radius: 14px;
+        border-radius: 12px;
     }
 
     /* ─── 2. Topbar 精简 ─── */
     .topbar {
-        padding: 6px 8px;
-        gap: 6px;
-    }
-
-    .topbar__title {
-        font-size: 16px;
-    }
-
-    .topbar__brand {
-        gap: 6px;
-    }
-
-    /* 状态胶囊缩小 */
-    .status-pill {
-        padding: 3px 8px;
-        font-size: 10px;
-    }
-
-    .topbar__actions {
+        padding: 4px 6px;
         gap: 4px;
     }
 
-    .document-tabs {
-        padding: 0 8px;
+    .topbar__brand {
+        font-size: 14px;
+    }
+
+    .status-pill {
+        padding: 3px 6px;
+        font-size: 9px;
     }
 
     .document-tab-list {
-        gap: 6px;
-        padding-bottom: 2px;
+        gap: 4px;
     }
 
     .document-tab__select {
-        padding: 7px 6px 7px 10px;
-        gap: 6px;
+        padding: 5px 4px 5px 8px;
+        gap: 4px;
     }
 
     .document-tab__label {
-        max-width: 120px;
-        font-size: 12px;
+        max-width: 100px;
+        font-size: 11px;
     }
 
     .document-tab__close {
-        width: 24px;
-        height: 24px;
-        margin-right: 4px;
+        width: 20px;
+        height: 20px;
+        margin-right: 3px;
+        font-size: 11px;
     }
 
-    /* 次要按钮（导出、打印）隐藏，减少工具栏溢出 */
+    /* 次要按钮隐藏 */
     #downloadAlphaTexButton,
     #printButton {
         display: none;
     }
 
-    /* 工具栏按钮更紧凑 */
     .toolbar-button,
     .segmented__button {
-        padding: 5px 8px;
-        font-size: 12px;
-    }
-
-    /* 分段控件紧凑 */
-    .segmented {
-        padding: 2px;
-        border-radius: 10px;
-    }
-
-    .segmented__button {
-        padding: 5px 7px;
+        padding: 4px 6px;
         font-size: 11px;
     }
 
-    /* 工具栏分组间距收紧 */
+    .segmented {
+        padding: 1px;
+        border-radius: 8px;
+    }
+
+    .segmented__button {
+        padding: 4px 6px;
+        font-size: 10px;
+    }
+
     .toolbar-group {
-        gap: 4px;
+        gap: 3px;
     }
 
     /* ─── 3. 面板紧凑化 ─── */
@@ -1334,90 +1274,60 @@ input {
     }
 
     .panel {
-        border-radius: 14px;
-        min-height: 0; /* 取消固定最小高度，让面板自适应 */
+        border-radius: 12px;
+        min-height: 0;
     }
 
-    .panel__header {
-        padding: 8px 10px 6px;
-        gap: 8px;
+    .panel__infobar {
+        padding: 4px 8px;
+        gap: 6px;
     }
 
-    .panel__eyebrow {
-        font-size: 10px;
-        margin-bottom: 2px;
-    }
-
-    .panel__header h2 {
-        font-size: 14px;
-    }
-
-    .panel__hint {
-        font-size: 11px;
-    }
-
-    .panel__meta strong {
+    .panel__infobar strong {
         font-size: 12px;
-        max-width: 140px;
+        max-width: 120px;
     }
 
-    .panel__meta span {
+    .panel__infobar span {
         font-size: 10px;
-        max-width: 140px;
     }
 
-    /* ─── 4. 诊断面板默认折叠 + 紧凑化 ─── */
+    /* ─── 4. 诊断面板紧凑化 ─── */
     .diagnostics-panel__toggle {
-        padding: 8px 10px;
+        padding: 6px 8px;
         font-size: 12px;
     }
 
     .diagnostics-panel__body {
-        max-height: 120px;
-        padding: 0 10px 8px;
+        max-height: 100px;
+        padding: 0 8px 6px;
     }
 
     /* ─── 5. 预览区域紧凑化 ─── */
-    .preview-stage {
-        padding: 6px;
-        gap: 6px;
-    }
-
-    /* 手机端隐藏 track-dock，通过标题区域展示关键信息 */
     .track-dock {
         display: none;
     }
 
-    .preview-card {
-        border-radius: 14px;
-    }
-
     .preview-card__scroller {
-        padding: 12px 10px 16px;
+        padding: 8px 6px 12px;
     }
 
-    /* ─── 6. Transport 极致紧凑化 ─── */
+    /* ─── 6. Transport 紧凑化 ─── */
     .transport {
-        grid-template-columns: 1fr;
-        gap: 6px;
-        padding: 6px 8px;
-    }
-
-    .transport__left {
-        gap: 6px;
+        gap: 4px;
+        padding: 4px 6px;
     }
 
     .transport__button {
-        padding: 5px 8px;
-        font-size: 12px;
-    }
-
-    .transport__time {
+        padding: 3px 6px;
         font-size: 11px;
     }
 
-    /* 手机端隐藏速度/缩放/布局/滚动设置，减少拥挤 */
-    .transport__right {
+    .transport__time {
+        font-size: 10px;
+    }
+
+    .transport__controls {
         display: none;
     }
 
@@ -1441,13 +1351,13 @@ input {
 
     /* ─── 8. 示例预览横幅紧凑化 ─── */
     .example-preview-banner {
-        padding: 6px 10px;
-        gap: 6px;
+        padding: 4px 8px;
+        gap: 4px;
         font-size: 12px;
     }
 
     .example-preview-banner__label {
-        font-size: 12px;
+        font-size: 11px;
     }
 
     .example-preview-banner__actions {
@@ -1455,13 +1365,13 @@ input {
     }
 
     .example-preview-banner__button {
-        padding: 4px 8px;
-        font-size: 11px;
+        padding: 3px 6px;
+        font-size: 10px;
     }
 
     /* ─── 9. Action Bar 紧凑化 ─── */
     .editor-action-bar {
-        padding: 4px 8px;
+        padding: 3px 6px;
         gap: 2px;
     }
 }
@@ -1486,13 +1396,9 @@ input {
         min-width: 44px;
     }
 
-    .toolbar-field select {
-        min-height: 44px;
-    }
-
     /* 时间轴增大触摸区域 */
     .timeline {
-        height: 16px;
+        height: 14px;
     }
 
     /* 轨道选择按钮增大间距 */
@@ -1502,7 +1408,7 @@ input {
 
     /* 诊断面板折叠按钮增大 */
     .diagnostics-panel__toggle {
-        padding: 12px 16px;
+        padding: 10px 14px;
     }
 }
 
@@ -1517,6 +1423,6 @@ input {
     }
 
     .diagnostics-panel__toggle {
-        padding: 8px 10px;
+        padding: 6px 8px;
     }
 }

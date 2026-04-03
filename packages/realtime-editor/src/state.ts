@@ -44,7 +44,7 @@ export const dom = {
     diagnosticsToggle: document.querySelector<HTMLButtonElement>('#diagnosticsToggle'),
     diagnosticsPanel: document.querySelector<HTMLElement>('.diagnostics-panel'),
     trackDockToggle: document.querySelector<HTMLButtonElement>('#trackDockToggle'),
-    trackDock: document.querySelector<HTMLElement>('.track-dock')
+    trackDock: document.querySelector<HTMLElement>('#trackDock')
 } as const;
 
 // ─── 应用状态 ───────────────────────────────────────────────
@@ -163,16 +163,10 @@ export function setViewMode(view: ViewMode): void {
         delete dom.workspace.dataset.view;
         dom.workspace.offsetHeight;
 
-        switch (resolvedView) {
-            case 'split':
-                state.split?.setSizes(getPreferredSplitSizes());
-                break;
-            case 'editor':
-                state.split?.setSizes([100, 0]);
-                break;
-            case 'preview':
-                state.split?.setSizes([0, 100]);
-                break;
+        if (resolvedView === 'split') {
+            state.split?.setSizes(getPreferredSplitSizes());
+        } else {
+            clearSplitInlineStyles();
         }
 
         dom.workspace.dataset.view = resolvedView;
