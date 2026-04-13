@@ -128,6 +128,40 @@ async function setupLspAlphaTexLanguageSupport(
     );
 }
 
+// ─── LSP 重同步 ──────────────────────────────────────────────
+
+/**
+ * 在切换文档标签页后，强制 LSP 客户端与当前 model 内容重新同步。
+ *
+ * 背景：`@coderline/alphatab-monaco/lsp` 的 LSP 客户端使用固定的
+ * `documentUri` 并绑定 `editor.onDidChangeModelContent` 发送增量更新。
+ * 当通过 `editor.setModel()` 切换 model 后，LSP 内部缓存的文档内容
+ * 仍然是上一个 model 的内容，导致：
+ *   1. 旧 model 上的诊断标记（红色下划线）不会被清除
+ *   2. 新 model 的内容未被 LSP 重新诊断
+ *
+ * 修复策略（非侵入式，不修改上游 lsp.ts）：
+ *   1. 清除当前 model 上所有 LSP 标记
+ *   2. 通过 `model.applyEdits()` 执行一次等值全文替换，
+ *      触发 `onDidChangeModelContent` 事件，使 LSP 客户端重新接收全文
+ *
+ * @param model - 需要重同步的 Monaco ITextModel（通常是刚激活的文档 model）
+ */
+export function resyncLspForModel(model: monaco.editor.ITextModel): void {
+    // Step 1: 清除该 model 上所有来源为 'lsp' 的诊断标记
+    monaco.editor.setModelMarkers(model, 'lsp', []);
+
+    // Step 2: 执行等值全文替换，触发 onDidChangeModelContent
+    // 这会导致 lsp.ts 中的 DidChangeTextDocumentNotification 被发送，
+    // LSP 服务端重新解析完整文档内容
+    const fullRange = model.getFullModelRange();
+    const fullContent = model.getValue();
+    model.applyEdits([{
+        range: fullRange,
+        text: fullContent
+    }]);
+}
+
 // ─── 诊断面板 ────────────────────────────────────────────────
 
 export function refreshDiagnostics(): void {

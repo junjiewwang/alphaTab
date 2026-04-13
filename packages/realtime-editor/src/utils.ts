@@ -60,6 +60,20 @@ export function escapeHtml(value: string): string {
 }
 
 /**
+ * 检测当前浏览器是否支持 File System Access API
+ *
+ * File System Access API（Chrome 86+, Edge 86+）提供 showOpenFilePicker / showSaveFilePicker，
+ * 可以获取 FileSystemFileHandle 实现对本地文件的直接读写。
+ * Safari / Firefox 暂不支持。
+ */
+export function supportsFileSystemAccess(): boolean {
+    return (
+        typeof window.showOpenFilePicker === 'function' &&
+        typeof window.showSaveFilePicker === 'function'
+    );
+}
+
+/**
  * 创建并触发文件下载
  */
 export function downloadBlob(fileName: string, blob: Blob): void {

@@ -25,6 +25,8 @@ export type WorkspaceDocumentSnapshot = {
     lastSuccessfulCode: string;
     scoreTitle: string;
     scoreSubtitle: string;
+    /** 标记该文档是否关联了 FileSystemFileHandle（用于恢复时从 IndexedDB 重新获取） */
+    hasFileHandle?: boolean;
 };
 
 export type WorkspaceSnapshot = {
@@ -37,6 +39,8 @@ export type WorkspaceDocument = WorkspaceDocumentSnapshot & {
     model: monaco.editor.ITextModel;
     currentScore: alphaTab.model.Score | null;
     currentTimeInfo: alphaTab.synth.PositionChangedEventArgs | null;
+    /** File System Access API 文件句柄，用于直接保存回原始文件 */
+    fileHandle: FileSystemFileHandle | null;
 };
 
 export type PendingImportRequest = {

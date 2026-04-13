@@ -1,7 +1,13 @@
-import { createNewDocument, markActiveDocumentSaved, openExampleDocument, openFiles } from './documents';
+import {
+    createNewDocument,
+    openExampleDocument,
+    openFiles,
+    openFilesWithPicker,
+    saveActiveDocument
+} from './documents';
 import { dom, getActiveDocument, setStatus, setViewMode, state } from './state';
 import type { ExampleId, ViewMode } from './types';
-import { downloadBlob, getErrorMessage, safeFileName } from './utils';
+import { getErrorMessage, supportsFileSystemAccess } from './utils';
 
 export function setupToolbar(): void {
     dom.newDocumentButton.addEventListener('click', () => {
@@ -28,8 +34,15 @@ export function setupToolbar(): void {
         }
     });
 
+    // ── 打开文件 ──
+    // 支持 File System Access API 时优先使用 showOpenFilePicker，
+    // 可获得 FileSystemFileHandle 实现直接保存回原文件
     dom.openFileButton.addEventListener('click', () => {
-        dom.fileInput.click();
+        if (supportsFileSystemAccess()) {
+            void openFilesWithPicker();
+        } else {
+            dom.fileInput.click();
+        }
     });
 
     dom.fileInput.addEventListener('change', async () => {
@@ -48,29 +61,20 @@ export function setupToolbar(): void {
         }
     });
 
-    dom.downloadAlphaTexButton.addEventListener('click', () => {
-        const activeDocument = getActiveDocument();
-        if (!activeDocument) {
-            setStatus('warning', '导出不可用', '当前没有活动文档');
-            return;
+    // ── 保存（智能判断）──
+    // 有 fileHandle → 直接写回原文件
+    // 无 fileHandle + 支持 API → showSaveFilePicker 选择路径
+    // 无 fileHandle + 不支持 API → 浏览器下载
+    dom.saveButton.addEventListener('click', () => {
+        void saveActiveDocument();
+    });
+
+    // ── 全局 Ctrl+S / Cmd+S 快捷键 ──
+    document.addEventListener('keydown', event => {
+        if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+            event.preventDefault();
+            void saveActiveDocument();
         }
-
-        const content = activeDocument.model.getValue();
-        if (!content.trim()) {
-            setStatus('warning', '导出不可用', '当前文档内容为空');
-            return;
-        }
-
-        const fallbackName = safeFileName(
-            activeDocument.scoreTitle || activeDocument.displayName || 'untitled'
-        );
-        const fileName = activeDocument.displayName.toLowerCase().endsWith('.alphatex')
-            ? activeDocument.displayName
-            : `${fallbackName}.alphatex`;
-
-        downloadBlob(fileName, new Blob([content], { type: 'text/plain;charset=utf-8' }));
-        markActiveDocumentSaved();
-        setStatus('ready', '已导出 AlphaTex', fileName);
     });
 
     dom.printButton.addEventListener('click', () => {

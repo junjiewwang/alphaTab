@@ -22,7 +22,8 @@ function toSnapshot(): WorkspaceSnapshot {
         activeTrackIndexes: [...document.activeTrackIndexes],
         lastSuccessfulCode: document.lastSuccessfulCode,
         scoreTitle: document.scoreTitle,
-        scoreSubtitle: document.scoreSubtitle
+        scoreSubtitle: document.scoreSubtitle,
+        hasFileHandle: document.hasFileHandle ?? false
     }));
 
     return {

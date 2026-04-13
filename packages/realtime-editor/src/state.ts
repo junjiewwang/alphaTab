@@ -25,7 +25,7 @@ export const dom = {
     examplePreviewLabel: document.querySelector<HTMLElement>('#examplePreviewLabel')!,
     restoreDocumentButton: document.querySelector<HTMLButtonElement>('#restoreDocumentButton')!,
     adoptExampleButton: document.querySelector<HTMLButtonElement>('#adoptExampleButton')!,
-    downloadAlphaTexButton: document.querySelector<HTMLButtonElement>('#downloadAlphaTexButton')!,
+    saveButton: document.querySelector<HTMLButtonElement>('#saveButton')!,
     printButton: document.querySelector<HTMLButtonElement>('#printButton')!,
     fileInput: document.querySelector<HTMLInputElement>('#fileInput')!,
     previewViewport: document.querySelector<HTMLElement>('#previewViewport')!,
