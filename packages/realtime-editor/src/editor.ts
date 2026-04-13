@@ -1,4 +1,6 @@
 import * as alphaTab from '@coderline/alphatab';
+import { scoreMetaData, staffMetaData } from '@coderline/alphatab-alphatex/definitions';
+import type { MetadataTagDefinition } from '@coderline/alphatab-alphatex/types';
 import { registerAlphaTexGrammar } from '@coderline/alphatab-monaco/alphatex';
 import { basicEditorLspIntegration } from '@coderline/alphatab-monaco/lsp';
 import { addTextMateGrammarSupport } from '@coderline/alphatab-monaco/textmate';
@@ -94,11 +96,205 @@ function defineMonacoTheme(): void {
     });
 }
 
+// ─── LSP 补全增强（非侵入式） ─────────────────────────────────
+
+/**
+ * 将上游 `MetadataTagDefinition` 转换为 Monaco `CompletionItem`。
+ *
+ * 复刻自上游 `completion.ts` 的 `metaDataDocToCompletion()` 逻辑，
+ * 但使用 Monaco 原生类型而非 LSP 类型（避免引入 LSP 依赖）。
+ *
+ * @param def - 上游元数据定义（来自 `@coderline/alphatab-alphatex/definitions`）
+ * @returns Monaco CompletionItem
+ */
+function metadataToCompletionItem(
+    def: MetadataTagDefinition
+): monaco.languages.CompletionItem {
+    return {
+        label: def.tag,
+        kind: monaco.languages.CompletionItemKind.Function,
+        insertText: def.snippet,
+        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+        detail: def.shortDescription ?? undefined,
+        documentation: def.longDescription
+            ? { value: def.longDescription }
+            : undefined,
+        range: undefined!  // 将在 enhanceCompletionResult 中统一设置
+    };
+}
+
+/**
+ * 上游 LSP 在 `barIndex > 0` 时遗漏的补全项缓存。
+ *
+ * 上游 `completion.ts` 的 `createMetaDataCompletions()` 在光标位于
+ * 第一小节之后时，只返回 `structuralMetaData` + `barMetaData`，
+ * 排除了 `scoreMetaData`（\title、\chordDiagramsInScore 等 ~30 个）
+ * 和 `staffMetaData`（\chord、\tuning、\capo 等 ~8 个）。
+ *
+ * 这些数据直接从上游 `@coderline/alphatab-alphatex/definitions` 导入，
+ * **零维护成本** —— 上游新增命令时自动获得。
+ */
+const supplementalCompletionItems: monaco.languages.CompletionItem[] = [
+    ...Array.from(scoreMetaData.values()).map(metadataToCompletionItem),
+    ...Array.from(staffMetaData.values()).map(metadataToCompletionItem)
+];
+
+/**
+ * 缓存 supplementalCompletionItems 中的 label 集合，
+ * 用于在 O(1) 时间内判断上游结果是否已包含某个补全项。
+ */
+const supplementalLabels = new Set(
+    supplementalCompletionItems.map(item => item.label as string)
+);
+
+/**
+ * 从光标位置向前扫描，找到当前正在输入的"单词"的起始列号。
+ *
+ * AlphaTex 语法中，命令以 `\` 开头（如 `\tempo`），但 Monaco 默认的
+ * `wordPattern` 不包含 `\`，会将 `\tempo` 切分为 `\` + `tempo`。
+ * 此函数向前扫描直到遇到空白或行首，确保 `\` 被包含在单词范围内。
+ *
+ * @param model  - 当前 Monaco 文本模型
+ * @param position - 光标位置
+ * @returns 单词起始的列号（1-based，Monaco 列号约定）
+ */
+function findWordStartColumn(
+    model: monaco.editor.ITextModel,
+    position: monaco.Position
+): number {
+    const lineContent = model.getLineContent(position.lineNumber);
+    // Monaco 列号是 1-based，转为 0-based 索引进行扫描
+    let idx = position.column - 2; // column-1 是光标前一字符的 0-based index
+    while (idx >= 0 && lineContent[idx] !== ' ' && lineContent[idx] !== '\t') {
+        idx--;
+    }
+    // idx 现在停在空白字符或 -1（行首），所以起始列 = idx + 2（转回 1-based）
+    return idx + 2;
+}
+
+/**
+ * 增强补全项列表：修正 range、清除强制排序，并补充缺失的命令。
+ *
+ * 解决上游 LSP bridge 的三个问题：
+ *   1. **range 零宽度**：被设置为光标处 (col → col)，Monaco 无法识别已输入前缀
+ *   2. **sortText 强制排序**：按声明顺序赋值 "a","b","c"...，覆盖模糊匹配排序
+ *   3. **barIndex > 0 时遗漏命令**：scoreMetaData/staffMetaData 被排除
+ *
+ * @param result    - 上游 provider 返回的原始补全结果
+ * @param model     - 当前 Monaco 文本模型
+ * @param position  - 触发补全时的光标位置
+ * @returns 增强后的补全结果
+ */
+function enhanceCompletionResult(
+    result: monaco.languages.CompletionList,
+    model: monaco.editor.ITextModel,
+    position: monaco.Position
+): monaco.languages.CompletionList {
+    const wordStartCol = findWordStartColumn(model, position);
+
+    // 构建包含前缀的正确范围
+    const correctedRange = new monaco.Range(
+        position.lineNumber,
+        wordStartCol,
+        position.lineNumber,
+        position.column
+    );
+
+    // 收集上游已返回的 label 集合，用于判断是否需要补充
+    const existingLabels = new Set(
+        result.suggestions.map(s => s.label as string)
+    );
+
+    for (const suggestion of result.suggestions) {
+        // 修正 range：让 Monaco 知道用户已经输入了 `\temp` 这样的前缀
+        suggestion.range = correctedRange;
+        // 清除 sortText：让 Monaco 基于用户输入的前缀进行模糊匹配排序
+        suggestion.sortText = undefined;
+    }
+
+    // 补充上游在 barIndex > 0 时遗漏的 scoreMetaData / staffMetaData 命令
+    // 通过检测 supplementalLabels 中是否有 label 未出现在上游结果中来判断
+    const needsSupplement = [...supplementalLabels].some(
+        label => !existingLabels.has(label)
+    );
+
+    if (needsSupplement) {
+        for (const item of supplementalCompletionItems) {
+            if (!existingLabels.has(item.label as string)) {
+                result.suggestions.push({
+                    ...item,
+                    range: correctedRange
+                });
+            }
+        }
+    }
+
+    return result;
+}
+
+/**
+ * 猴子补丁：拦截上游 LSP bridge 的 CompletionItemProvider 注册，
+ * 包装其 `provideCompletionItems` 方法以增强补全行为。
+ *
+ * **工作原理**：
+ *   1. 临时替换 `monaco.languages.registerCompletionItemProvider`
+ *   2. 当上游 `basicEditorLspIntegration()` 调用该方法注册 provider 时，
+ *      我们拦截到 provider 对象并包装其 `provideCompletionItems`
+ *   3. 包装函数调用原始实现后，对结果执行 {@link enhanceCompletionResult}
+ *   4. 注册完成后恢复原始方法，不影响后续其他 provider 注册
+ *
+ * **为什么不直接修改上游代码**：
+ *   本项目基于 `@coderline/alphatab` 开源代码二次开发，
+ *   修改 `packages/lsp/` 或 `packages/monaco/` 会增加合并上游更新的冲突成本。
+ *   此猴子补丁方案与现有的 {@link resyncLspForModel} 同属非侵入式修复策略。
+ *
+ * @returns 恢复函数 — 调用后将 `registerCompletionItemProvider` 还原为原始实现
+ */
+function patchCompletionProvider(): () => void {
+    const original = monaco.languages.registerCompletionItemProvider;
+
+    monaco.languages.registerCompletionItemProvider = function (
+        languageSelector: monaco.languages.LanguageSelector,
+        provider: monaco.languages.CompletionItemProvider,
+        ...triggerCharacters: string[]
+    ) {
+        const originalProvide = provider.provideCompletionItems.bind(provider);
+
+        provider.provideCompletionItems = function (
+            model: monaco.editor.ITextModel,
+            position: monaco.Position,
+            context: monaco.languages.CompletionContext,
+            token: monaco.CancellationToken
+        ) {
+            const rawResult = originalProvide(model, position, context, token);
+
+            // provideCompletionItems 可能返回 Promise 或同步结果
+            if (rawResult && typeof (rawResult as Promise<monaco.languages.CompletionList>).then === 'function') {
+                return (rawResult as Promise<monaco.languages.CompletionList>).then(
+                    result => result ? enhanceCompletionResult(result, model, position) : result
+                );
+            }
+            return rawResult
+                ? enhanceCompletionResult(rawResult as monaco.languages.CompletionList, model, position)
+                : rawResult;
+        };
+
+        return original.call(monaco.languages, languageSelector, provider, ...triggerCharacters);
+    };
+
+    return () => {
+        monaco.languages.registerCompletionItemProvider = original;
+    };
+}
+
 // ─── LSP 集成 ────────────────────────────────────────────────
 
 async function setupLspAlphaTexLanguageSupport(
     editor: monaco.editor.IStandaloneCodeEditor
 ): Promise<void> {
+    // 在上游注册 CompletionItemProvider 之前安装猴子补丁
+    const restoreCompletionProvider = patchCompletionProvider();
+
     await basicEditorLspIntegration(
         editor,
         new Worker(new URL('../../monaco/src/worker.ts', import.meta.url), {
@@ -126,6 +322,9 @@ async function setupLspAlphaTexLanguageSupport(
             languageId: 'alphatex'
         }
     );
+
+    // 注册完成后恢复原始方法，不影响后续其他 provider 注册
+    restoreCompletionProvider();
 }
 
 // ─── LSP 重同步 ──────────────────────────────────────────────
