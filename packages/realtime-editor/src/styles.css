@@ -75,6 +75,7 @@ input {
     position: relative;
     display: grid;
     grid-template-rows: auto 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 6px;
     height: 100vh;
     padding: 10px;
@@ -136,11 +137,45 @@ input {
     flex-shrink: 0;
 }
 
-/* 标签栏内联于 topbar */
+/* 标签栏内联于 topbar — 渐变遮罩 + 滚动容器 */
 .document-tabs {
+    position: relative;
     display: flex;
     min-width: 0;
     flex: 1;
+    overflow: hidden;
+}
+
+/* 左/右渐变遮罩：提示用户还有更多标签可以滚动 */
+.document-tabs::before,
+.document-tabs::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 32px;
+    z-index: 2;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 200ms ease;
+}
+
+.document-tabs::before {
+    left: 0;
+    background: linear-gradient(90deg, var(--bg-elevated) 0%, transparent 100%);
+}
+
+.document-tabs::after {
+    right: 0;
+    background: linear-gradient(270deg, var(--bg-elevated) 0%, transparent 100%);
+}
+
+.document-tabs.has-scroll-left::before {
+    opacity: 1;
+}
+
+.document-tabs.has-scroll-right::after {
+    opacity: 1;
 }
 
 .document-tab-list {
@@ -151,7 +186,13 @@ input {
     width: 100%;
     overflow-x: auto;
     padding: 2px 0;
-    scrollbar-width: thin;
+    /* 隐藏滚动条 — 依赖鼠标滚轮和触摸滑动 */
+    scrollbar-width: none;          /* Firefox */
+    -ms-overflow-style: none;       /* IE/Edge legacy */
+}
+
+.document-tab-list::-webkit-scrollbar {
+    display: none;                  /* Chrome/Safari/Edge Chromium */
 }
 
 .document-tab {
@@ -344,6 +385,17 @@ input {
 
 .toolbar-button--ghost {
     background: transparent;
+}
+
+/* 保存按钮 — 带微妙渐变强调（从 ghost 中脱颖而出） */
+.toolbar-button--save {
+    background: linear-gradient(135deg, rgba(141, 216, 255, 0.14), rgba(241, 183, 94, 0.1));
+    border-color: rgba(141, 216, 255, 0.25);
+}
+
+.toolbar-button--save:hover {
+    border-color: rgba(141, 216, 255, 0.55);
+    background: linear-gradient(135deg, rgba(141, 216, 255, 0.24), rgba(241, 183, 94, 0.16));
 }
 
 /* 内联 select（Transport 等处通用） */
@@ -1243,7 +1295,6 @@ input {
     }
 
     /* 次要按钮隐藏 */
-    #downloadAlphaTexButton,
     #printButton {
         display: none;
     }
