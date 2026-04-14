@@ -568,11 +568,11 @@ async function saveActiveDocumentAs(): Promise<boolean> {
         : `${activeDocument.displayName}.alphatex`;
 
     if (!supportsFileSystemAccess()) {
-        // 降级：使用 downloadBlob
+        // 降级：使用 downloadBlob（非安全上下文或不支持的浏览器）
         const { downloadBlob } = await import('./utils');
         downloadBlob(fallbackName, new Blob([content], { type: 'text/plain;charset=utf-8' }));
         markActiveDocumentSaved();
-        setStatus('ready', '已导出 AlphaTex', fallbackName);
+        setStatus('ready', '已导出下载', `${fallbackName}（浏览器不支持直接保存，请在下载目录中查找）`);
         return true;
     }
 

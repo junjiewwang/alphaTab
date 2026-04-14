@@ -398,6 +398,18 @@ input {
     background: linear-gradient(135deg, rgba(141, 216, 255, 0.24), rgba(241, 183, 94, 0.16));
 }
 
+/* 保存按钮降级状态 — File System Access API 不可用时 */
+.toolbar-button--save.is-fallback {
+    border-style: dashed;
+    border-color: rgba(255, 210, 122, 0.35);
+    background: linear-gradient(135deg, rgba(255, 210, 122, 0.1), rgba(255, 139, 139, 0.06));
+}
+
+.toolbar-button--save.is-fallback:hover {
+    border-color: rgba(255, 210, 122, 0.6);
+    background: linear-gradient(135deg, rgba(255, 210, 122, 0.18), rgba(255, 139, 139, 0.1));
+}
+
 /* 内联 select（Transport 等处通用） */
 .toolbar-select {
     appearance: none;

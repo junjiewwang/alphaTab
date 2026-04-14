@@ -50,7 +50,19 @@ RUN npm run build --workspace=packages/realtime-editor
 
 
 FROM nginx:alpine
+
+# 生成自签名 TLS 证书（有效期 10 年）
+# File System Access API 需要 Secure Context（HTTPS / localhost）
+RUN apk add --no-cache openssl \
+ && mkdir -p /etc/nginx/ssl \
+ && openssl req -x509 -nodes -days 3650 \
+      -newkey rsa:2048 \
+      -keyout /etc/nginx/ssl/selfsigned.key \
+      -out /etc/nginx/ssl/selfsigned.crt \
+      -subj "/CN=alphatab-realtime-editor" \
+ && apk del openssl
+
 COPY --from=builder /app/packages/realtime-editor/dist /usr/share/nginx/html
 COPY packages/realtime-editor/nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+EXPOSE 80 443
 CMD ["nginx", "-g", "daemon off;"]

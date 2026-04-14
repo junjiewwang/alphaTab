@@ -7,6 +7,7 @@ import {
 } from './constants';
 import { setupDocumentTabs, handleActiveDocumentContentChanged, loadInitialWorkspace } from './documents';
 import { setupEditor } from './editor';
+import { setupEnvContext } from './env-context';
 import { setupMobileEnhancements } from './mobile';
 import { scheduleRender, setupPreview } from './preview';
 import {
@@ -36,6 +37,7 @@ async function initialize(): Promise<void> {
         });
         setupDocumentTabs();
         setupToolbar();
+        setupEnvContext();
         setupTransport();
         setupDiagnosticsToggle();
         setupTrackDockToggle();
