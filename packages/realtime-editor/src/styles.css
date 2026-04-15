@@ -1118,6 +1118,25 @@ input {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   Cursor Sync Highlight — 编辑器光标同步高亮
+   区别于播放高亮（蓝色系），使用暖色系标识编辑器光标位置
+   ═══════════════════════════════════════════════════════════ */
+
+/* 覆盖层容器 */
+.at-cursor-sync-overlay {
+    pointer-events: none;
+}
+
+/* 光标同步高亮块 — 琥珀色半透明背景 + 顶部强调线 */
+.at-cursor-sync-highlight {
+    background: rgba(241, 183, 94, 0.18);
+    border-top: 2px solid rgba(241, 183, 94, 0.7);
+    border-radius: 2px;
+    transition: opacity 120ms ease, background 120ms ease;
+    pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════════════
    Editor Action Bar — 移动端编辑器快捷工具栏
    默认隐藏，仅在触摸设备上显示（pointer: coarse）
    ═══════════════════════════════════════════════════════════ */

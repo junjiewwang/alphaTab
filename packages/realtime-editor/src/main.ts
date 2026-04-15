@@ -5,6 +5,7 @@ import {
     SPLIT_GUTTER_SIZE,
     STORAGE_KEYS
 } from './constants';
+import { cursorSync } from './cursor-sync';
 import { setupDocumentTabs, handleActiveDocumentContentChanged, loadInitialWorkspace } from './documents';
 import { setupEditor } from './editor';
 import { setupEnvContext } from './env-context';
@@ -35,6 +36,12 @@ async function initialize(): Promise<void> {
             handleActiveDocumentContentChanged();
             scheduleRender();
         });
+
+        // 初始化光标同步：将编辑器和预览 API 连接起来
+        if (state.api && state.editor) {
+            cursorSync.init(state.api, state.editor, dom.alphaTabRoot, dom.previewViewport);
+        }
+
         setupDocumentTabs();
         setupToolbar();
         setupEnvContext();

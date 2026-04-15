@@ -1,4 +1,5 @@
 import * as alphaTab from '@coderline/alphatab';
+import { cursorSync } from './cursor-sync';
 import { dom, getActiveDocument, getDocumentById, setStatus, state } from './state';
 import type { WorkspaceDocument } from './types';
 import { escapeHtml, getErrorMessage, safeFileName } from './utils';
@@ -370,6 +371,7 @@ export async function renderActiveDocument(): Promise<void> {
         activeDocument.lastSuccessfulCode = '';
         activeDocument.scoreTitle = activeDocument.displayName;
         activeDocument.scoreSubtitle = '空白文档';
+        cursorSync.updateData(null, null);
         persistWorkspace();
         syncActiveDocumentUi();
         setStatus('warning', '编辑器为空', '请输入 AlphaTex 内容后开始预览');
@@ -377,7 +379,7 @@ export async function renderActiveDocument(): Promise<void> {
     }
 
     try {
-        const score = parseScore(tex);
+        const { score, ast } = parseScore(tex);
         const reuseViewport = canReuseViewportForDocument(activeDocument, tex);
         activeDocument.currentScore = score;
         activeDocument.currentTimeInfo = null;
@@ -389,11 +391,15 @@ export async function renderActiveDocument(): Promise<void> {
         activeDocument.lastSuccessfulCode = tex;
         persistWorkspace();
         syncActiveDocumentUi();
+
+        // 通知光标同步模块更新 AST + Score 数据
+        cursorSync.updateData(ast, score);
+
         requestRenderForDocument(activeDocument, score, { reuseViewport });
     } catch (error) {
         if (activeDocument.lastSuccessfulCode && activeDocument.lastSuccessfulCode !== tex) {
             try {
-                const fallbackScore = parseScore(activeDocument.lastSuccessfulCode);
+                const { score: fallbackScore, ast: fallbackAst } = parseScore(activeDocument.lastSuccessfulCode);
                 activeDocument.currentScore = fallbackScore;
                 activeDocument.currentTimeInfo = null;
                 activeDocument.activeTrackIndexes = normalizeTrackSelection(
@@ -403,6 +409,10 @@ export async function renderActiveDocument(): Promise<void> {
                 updateDocumentMeta(activeDocument, fallbackScore, activeDocument.displayName);
                 persistWorkspace();
                 syncActiveDocumentUi();
+
+                // 回退场景也更新光标同步数据
+                cursorSync.updateData(fallbackAst, fallbackScore);
+
                 state.pendingRenderStatus = {
                     tone: 'warning',
                     title: '当前内容存在错误',
@@ -419,6 +429,7 @@ export async function renderActiveDocument(): Promise<void> {
 
         activeDocument.currentScore = null;
         activeDocument.currentTimeInfo = null;
+        cursorSync.updateData(null, null);
         persistWorkspace();
         clearPreview('该文档当前没有可显示的有效预览');
         setStatus('error', '脚本暂时无法渲染', getErrorMessage(error));
@@ -456,7 +467,18 @@ function updateDocumentMeta(
     }
 }
 
-function parseScore(tex: string): alphaTab.model.Score {
+type ParseResult = {
+    score: alphaTab.model.Score;
+    ast: alphaTab.importer.alphaTex.AlphaTexScoreNode | null;
+};
+
+/**
+ * 解析 AlphaTex 文本，返回 Score 和 AST。
+ *
+ * 使用 `AlphaTexParseMode.Full` 以获取完整的 AST 位置信息，
+ * 供光标同步模块将编辑器光标映射到渲染的乐谱元素。
+ */
+function parseScore(tex: string): ParseResult {
     if (!state.api) {
         throw new Error('预览 API 尚未初始化');
     }
@@ -464,7 +486,16 @@ function parseScore(tex: string): alphaTab.model.Score {
     const importer = new alphaTab.importer.AlphaTexImporter();
     importer.initFromString(tex, state.api.settings);
     importer.logErrors = true;
-    return importer.readScore();
+
+    // 切换到 Full 模式以保留 AST 位置信息（供 cursor-sync 使用）
+    if (importer.parser) {
+        importer.parser.mode = alphaTab.importer.alphaTex.AlphaTexParseMode.Full;
+    }
+
+    const score = importer.readScore();
+    const ast = importer.scoreNode ?? null;
+
+    return { score, ast };
 }
 
 function isLikelyIncrementalEdit(previousCode: string, currentCode: string): boolean {
