@@ -57,9 +57,17 @@ function binaryNodeSearchInner<T extends alphaTab.importer.alphaTex.AlphaTexAstN
 
     const center = Math.trunc((left + right) / 2);
     const centerItem = items[center];
-    const end = center === items.length - 1 ? trailingEnd : items[center + 1].start!.offset;
+    const isLast = center === items.length - 1;
 
-    if (centerItem.start!.offset <= offset && offset <= end) {
+    // 区间策略：
+    // - 非末尾节点：[start, nextStart) — 左闭右开，边界点归属下一个节点
+    // - 末尾节点：[start, trailingEnd] — 左闭右闭，无下一个节点可归属
+    const end = isLast ? trailingEnd : items[center + 1].start!.offset;
+    const inRange = isLast
+        ? (centerItem.start!.offset <= offset && offset <= end)
+        : (centerItem.start!.offset <= offset && offset < end);
+
+    if (inRange) {
         return centerItem;
     }
 
@@ -140,6 +148,11 @@ type ScoreBarPosition = {
  * metaData 中出现，导致 AST bars 列表中的索引与 Score masterBars 索引不一致。
  * 本函数通过检测这些结构性 metaData 来校正索引偏移。
  *
+ * 重要：alphaTab 解析器对 **每个层级的第一个** 结构标签采用"忽略初始"语义
+ * （`ignoredInitialTrack/Staff/Voice`），即第一个 `\track` 不创建新 track，
+ * 而是复用已有的 track 0。后续的 `\track` 才创建新 track（track 1, 2, ...）。
+ * `\staff` 和 `\voice` 同理。本函数需要对齐此行为。
+ *
  * @param bars - AST 的 bars 列表
  * @param targetBarIndex - 目标 bar 在 AST 中的索引
  * @returns 该 bar 在当前 track/staff/voice 上下文中的 Score bar 索引
@@ -153,11 +166,16 @@ function computeScoreBarIndex(
     let staffIndex = 0;
     let voiceIndex = 0;
 
+    // 对齐 alphaTab 解析器的 "ignored initial" 语义：
+    // 每个层级的第一个结构标签不递增索引（复用初始对象）
+    let seenFirstTrack = false;
+    let seenFirstStaff = false;
+    let seenFirstVoice = false;
+
     const structuralTags = new Set(['track', 'staff', 'voice']);
 
     for (let i = 0; i <= targetBarIndex; i++) {
         const bar = bars[i];
-        let hadStructuralReset = false;
 
         for (const meta of bar.metaData) {
             const tagName = meta.tag?.tag?.text?.toLowerCase();
@@ -166,30 +184,44 @@ function computeScoreBarIndex(
             }
 
             if (tagName === 'track') {
-                trackIndex++;
+                if (seenFirstTrack) {
+                    // 后续 \track：创建新 track，索引递增
+                    trackIndex++;
+                } else {
+                    // 第一个 \track：复用 track 0，不递增
+                    seenFirstTrack = true;
+                }
+                // 无论是否递增，新 track 的 staff/voice/masterBar 都从 0 开始
+                seenFirstStaff = false;
+                seenFirstVoice = false;
                 staffIndex = 0;
                 voiceIndex = 0;
                 masterBarIndex = 0;
-                hadStructuralReset = true;
             } else if (tagName === 'staff') {
-                staffIndex++;
+                if (seenFirstStaff) {
+                    staffIndex++;
+                } else {
+                    seenFirstStaff = true;
+                }
+                seenFirstVoice = false;
                 voiceIndex = 0;
                 masterBarIndex = 0;
-                hadStructuralReset = true;
             } else if (tagName === 'voice') {
-                voiceIndex++;
+                if (seenFirstVoice) {
+                    voiceIndex++;
+                } else {
+                    seenFirstVoice = true;
+                }
                 masterBarIndex = 0;
-                hadStructuralReset = true;
             }
         }
 
-        // 如果当前 bar 有 beat 内容但不是结构切换后的第一个 bar
-        if (i < targetBarIndex && !hadStructuralReset && bar.beats.length > 0) {
+        // 递增 masterBarIndex：当前 bar 有 beats 内容，且不是目标 bar 本身
+        // 注意：即使有结构标签（如 \track/\staff），只要该 bar 包含 beats，
+        // 它就占据了一个 masterBar 槽位，离开时需要递增。
+        if (i < targetBarIndex && bar.beats.length > 0) {
             masterBarIndex++;
         }
-
-        // 如果结构切换后，这个 bar 本身包含 beats，则它就是 masterBarIndex=0 的那个 bar
-        // 无需递增
     }
 
     return { masterBarIndex, trackIndex, staffIndex, voiceIndex };
@@ -917,6 +949,7 @@ export class CursorSyncManager {
 
         // 环节 ③：AST 节点 → Score Beat
         const beat = mapAstToScoreBeat(astResult, this._ast, this._score);
+
         if (!beat) {
             this.clearHighlight();
             return;

@@ -57,7 +57,10 @@ export default defineConfig({
     build: {
         // Safari 兼容：alphaTab 源码使用了 TC39 Explicit Resource Management 的 `using` 关键字，
         // Safari 18.2 之前不支持。将 esbuild target 设为 es2021 使其被降级为 try/finally。
-        target: ['es2021', 'safari14'],
+        // 注意：safari14 不支持某些解构语法的降级转换（esbuild 限制），
+        // monaco-editor worker 中大量使用解构会导致构建失败。
+        // safari15 (2021.9) 完整支持 ES2021 + 解构，满足兼容需求。
+        target: ['es2021', 'safari15'],
         rollupOptions: {
             output: {
                 manualChunks(id) {

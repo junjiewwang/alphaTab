@@ -176,6 +176,69 @@ alphaTab 的异步 `scrollToY` 是通过 `beginInvoke(setTimeout/rAF)` 排队的
 |------|----------|------|
 | `src/cursor-sync.ts` | 修改 | 移除 `_scrollGuardHandler` 字段和 `_removeScrollGuard()` 方法；简化 `_saveViewportBeforeRender()` 为纯快照保存；重写 `_restoreViewportAfterRender()` 为 2 帧 rAF 延迟恢复 |
 
+### 🔧 编辑器光标定位到错误小节（Phase 2.2）
+
+**问题现象：** 在编辑器中点击某个音符后，预览面板的高亮指示定位到**错误的小节**（通常差 1-2 节），且高亮范围覆盖整节而不是精确到具体 beat。
+
+**迭代历程：**
+
+| 迭代 | 方案 | 结果 |
+|------|------|------|
+| v1 | 修复 `binaryNodeSearchInner` 边界条件（左闭右闭→左闭右开） | ✅ 正确修复了区间边界问题，但未解决主要症状 |
+| v2 | 修复 `computeScoreBarIndex` 的 track/staff/voice 计数（对齐 ignoredInitial 语义） | ✅ 修复了结构索引的 off-by-one，但 masterBarIndex 仍差 1 |
+| **v3（当前）** | **修复 `computeScoreBarIndex` 的 masterBarIndex 递增逻辑** | ✅ 完全修复 |
+
+**v3 根因分析（masterBarIndex 差 1）：**
+
+通过完整 bar trace 日志发现：
+
+```
+[0] beats=6 meta=[track,staff,...] → mbi=0  ← 正确：第一个 bar
+[1] beats=6 meta=[]                → mbi=0  ← ❌ 应为 mbi=1
+[2] beats=7 meta=[]                → mbi=1  ← ❌ 应为 mbi=2（全体少 1）
+```
+
+原因：`masterBarIndex++` 的条件包含 `!hadStructuralReset`：
+
+```typescript
+if (i < targetBarIndex && !hadStructuralReset && bar.beats.length > 0) {
+    masterBarIndex++;
+}
+```
+
+当 bar 0 包含结构标签（`\track`, `\staff`）时，`hadStructuralReset = true` 阻止了递增。但 bar 0 **同时有 6 个 beats**——它占据了 masterBar 槽位 0，离开它时应该递增到 1。
+
+修复：移除 `!hadStructuralReset` 条件。结构标签只影响 track/staff/voice 索引和 masterBarIndex 的**重置**，不影响有 beats 的 bar 在离开时的**递增**。
+
+```typescript
+// 修复后：只要 bar 有 beats 且不是目标 bar，就递增
+if (i < targetBarIndex && bar.beats.length > 0) {
+    masterBarIndex++;
+}
+```
+
+修复后 trace：
+```
+[0] beats=6 meta=[track,staff,...] → mbi=0
+[1] beats=6 meta=[]                → mbi=1  ✅
+[10] beats=8 meta=[]               → mbi=10 ✅（第 11 小节）
+```
+
+**v2 根因分析（track/staff 索引偏移）：**
+
+`computeScoreBarIndex` 中 `\track`/`\staff`/`\voice` 的计数与 alphaTab 解析器不一致。解析器对每个层级的第一个结构标签采用"忽略初始"语义（`ignoredInitialTrack`），即第一个 `\track` 不创建新 track 而是复用 track 0。我们的计数从 0 开始遇到就 `++`，导致多 1。
+
+修复：引入 `seenFirstTrack`/`seenFirstStaff`/`seenFirstVoice` 标志，第一次遇到时不递增。
+
+**v1 根因分析（区间边界）：**
+
+`binaryNodeSearchInner` 使用左闭右闭区间，边界点被归属到上一个节点。修复为非末尾节点使用左闭右开区间。
+
+**变更文件：**
+| 文件 | 变更类型 | 说明 |
+|------|----------|------|
+| `src/cursor-sync.ts` | 修改 | v1: 修复 `binaryNodeSearchInner` 左闭右开区间；v2: 修复 `computeScoreBarIndex` 对齐 ignoredInitial 语义；v3: 移除 `hadStructuralReset` 对 masterBarIndex 递增的阻断 |
+
 ## 遗留问题
 
 1. **多轨道映射准确性**：`computeScoreBarIndex` 中对 `\track`/`\staff`/`\voice` 的索引推算基于 AST 的线性遍历，复杂场景（如 `\track` 后接 `\staff` 再接 `\voice`）需要更多测试验证
