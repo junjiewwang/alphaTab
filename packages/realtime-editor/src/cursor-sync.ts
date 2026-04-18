@@ -292,18 +292,98 @@ function mapAstToScoreBeat(
 // ─── Score Beat → AST 反向映射（双向同步核心） ───────────────
 
 /**
+ * 根据鼠标坐标反查命中的 staff 索引。
+ *
+ * **问题背景**：同一个 `Bar` 可以被多个 `BarRenderer` 渲染（五线/tab/简谱），
+ * 它们共享同一组 `Beat` 对象。alphaTab 的 `beatMouseDown` 事件只传递 `Beat`，
+ * 不传递"点击了哪一种渲染"。因此点击不同样式的音符时，事件层面无法区分。
+ *
+ * **解决思路**：在鼠标按下时（捕获阶段），根据 `(x, y)` 坐标在 `BoundsLookup`
+ * 的层级结构中定位：`StaffSystemBounds → MasterBarBounds → BarBounds`，每个
+ * `BarBounds` 绑定唯一的 `Bar`，其 `bar.staff.index` 即为命中的 staff 索引。
+ *
+ * 该函数的容错策略：
+ * - boundsLookup 未就绪 → 返回 null（调用方回退到 beat 自带 staff）
+ * - 坐标不在任何 staff system 内 → 返回 null
+ * - 多个 BarBounds Y 范围重叠（罕见）→ 返回最先匹配的
+ *
+ * @param api - alphaTab API 实例
+ * @param relX - 相对 canvas 的 X 坐标
+ * @param relY - 相对 canvas 的 Y 坐标
+ * @returns 命中的 staff 索引，或 null
+ */
+function findStaffIndexAtPos(
+    api: alphaTab.AlphaTabApi,
+    relX: number,
+    relY: number
+): number | null {
+    const lookup = api.boundsLookup;
+    if (!lookup) {
+        return null;
+    }
+
+    for (const system of lookup.staffSystems) {
+        const sysTop = system.realBounds.y;
+        const sysBottom = sysTop + system.realBounds.h;
+        if (relY < sysTop || relY > sysBottom) {
+            continue;
+        }
+
+        const masterBar = system.findBarAtPos(relX);
+        if (!masterBar) {
+            continue;
+        }
+
+        // 在 MasterBar 的 bars 列表中按 Y 坐标精确匹配 staff
+        for (const barBounds of masterBar.bars) {
+            const top = barBounds.visualBounds.y;
+            const bottom = top + barBounds.visualBounds.h;
+            if (relY >= top && relY <= bottom) {
+                return barBounds.bar.staff.index;
+            }
+        }
+
+        // Y 未精确命中任一 BarBounds 时，取距离 Y 最近的那个 staff
+        // （处理 effect band / 谱间空隙点击）
+        let nearestIndex: number | null = null;
+        let nearestDistance = Number.POSITIVE_INFINITY;
+        for (const barBounds of masterBar.bars) {
+            const top = barBounds.visualBounds.y;
+            const bottom = top + barBounds.visualBounds.h;
+            const distance =
+                relY < top ? top - relY : relY > bottom ? relY - bottom : 0;
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestIndex = barBounds.bar.staff.index;
+            }
+        }
+        return nearestIndex;
+    }
+
+    return null;
+}
+
+/**
  * 将 Score Beat 反向映射到 AST 中的源码偏移位置。
  *
  * 通过 Beat 的 Score 模型导航链（beat.voice.bar.staff.track）获取结构索引，
  * 然后遍历 AST bars 查找匹配的 bar 和 beat 节点，返回其源码偏移。
  *
+ * **多谱样式支持**：同一个 Beat 在 Score 模型中只绑定到首个 staff
+ * （alphaTab 的 `beatMouseDown` 事件仅携带 Beat，不携带点击位置所在
+ * 的 staff 信息）。当用户在预览面板点击 tab 谱或简谱的音符时，需要
+ * 通过 `staffIndexOverride` 参数覆盖默认的 staff 索引，以精准定位到
+ * AST 中对应 `\staff` 段的源码位置。
+ *
  * @param beat - Score 模型中的 Beat 对象
  * @param ast - AST 根节点
+ * @param staffIndexOverride - 可选，强制使用的 staff 索引（点击位置所在 staff）
  * @returns AST 节点的起始偏移，或 null
  */
 function mapScoreBeatToAstOffset(
     beat: alphaTab.model.Beat,
-    ast: alphaTab.importer.alphaTex.AlphaTexScoreNode
+    ast: alphaTab.importer.alphaTex.AlphaTexScoreNode,
+    staffIndexOverride: number | null = null
 ): number | null {
     if (!ast.bars || ast.bars.length === 0) {
         return null;
@@ -311,7 +391,8 @@ function mapScoreBeatToAstOffset(
 
     // 从 Score Beat 提取目标结构索引
     const targetTrackIndex = beat.voice.bar.staff.track.index;
-    const targetStaffIndex = beat.voice.bar.staff.index;
+    // staff 索引：优先使用点击位置实际命中的 staff，否则退回到 Beat 所属 staff
+    const targetStaffIndex = staffIndexOverride ?? beat.voice.bar.staff.index;
     const targetVoiceIndex = beat.voice.index;
     const targetMasterBarIndex = beat.voice.bar.index;
     const targetBeatIndex = beat.index;
@@ -653,6 +734,16 @@ export class CursorSyncManager {
     private _indexCache = new AstIndexCache();
     /** 渲染期间的视口快照（updateData 时保存，postRenderFinished 时恢复） */
     private _viewportSnapshot: ViewportSnapshot | null = null;
+    /**
+     * 最近一次鼠标按下时，命中的 staff 索引。
+     *
+     * 在 alphaTabRoot 的 capture 阶段捕获，先于 alphaTab 内部的
+     * `beatMouseDown` 触发。beatMouseDown 回调中读取后立即清空，
+     * 确保每次点击独立生效（过期值不会污染后续事件）。
+     */
+    private _lastClickedStaffIndex: number | null = null;
+    /** alphaTabRoot 上注册的 mousedown capture 监听器（用于 dispose 清理） */
+    private _rootMouseDownHandler: ((event: MouseEvent) => void) | null = null;
 
     /**
      * 初始化光标同步管理器。
@@ -696,6 +787,30 @@ export class CursorSyncManager {
             this._syncPreviewToEditor(beat);
         };
         api.beatMouseDown.on(this._beatMouseDownHandler);
+
+        // ── 监听鼠标按下坐标（capture 阶段，先于 alphaTab 内部处理），
+        //    用于识别点击落在哪个 staff（tab / 简谱 / 五线谱）
+        this._rootMouseDownHandler = (event: MouseEvent) => {
+            if (!this._enabled || this._pausedByPlayback || !this._api) {
+                this._lastClickedStaffIndex = null;
+                return;
+            }
+
+            const canvasHost =
+                (this._api.canvasElement as { element?: HTMLElement } | undefined)?.element ??
+                this._alphaTabRoot?.querySelector<HTMLElement>('.at-surface') ??
+                null;
+            if (!canvasHost) {
+                this._lastClickedStaffIndex = null;
+                return;
+            }
+
+            const rect = canvasHost.getBoundingClientRect();
+            const relX = event.clientX - rect.left;
+            const relY = event.clientY - rect.top;
+            this._lastClickedStaffIndex = findStaffIndexAtPos(this._api, relX, relY);
+        };
+        alphaTabRoot.addEventListener('mousedown', this._rootMouseDownHandler, true);
 
         // ── 监听播放状态变化（播放时自动暂停）
         this._playerStateHandler = (args: alphaTab.synth.PlayerStateChangedEventArgs) => {
@@ -785,6 +900,12 @@ export class CursorSyncManager {
             this._api.beatMouseDown.off(this._beatMouseDownHandler);
         }
         this._beatMouseDownHandler = null;
+
+        if (this._rootMouseDownHandler && this._alphaTabRoot) {
+            this._alphaTabRoot.removeEventListener('mousedown', this._rootMouseDownHandler, true);
+        }
+        this._rootMouseDownHandler = null;
+        this._lastClickedStaffIndex = null;
 
         if (this._playerStateHandler && this._api) {
             this._api.playerStateChanged.off(this._playerStateHandler);
@@ -972,6 +1093,10 @@ export class CursorSyncManager {
 
     /**
      * 反向同步：预览面板 Beat 点击 → 定位编辑器光标。
+     *
+     * 使用 `_lastClickedStaffIndex`（由 mousedown capture 阶段捕获）来精确
+     * 定位点击落在哪个 staff（tab/简谱/五线谱），避免多谱样式场景下始终
+     * 跳到第一个 staff 的源码位置。
      */
     private _syncPreviewToEditor(beat: alphaTab.model.Beat): void {
         if (!this._ast || !this._editor || !this._api || !this._renderReady || !this._alphaTabRoot) {
@@ -983,8 +1108,12 @@ export class CursorSyncManager {
             return;
         }
 
-        // 将 Score Beat 反向映射到 AST 偏移
-        const offset = mapScoreBeatToAstOffset(beat, this._ast);
+        // 取出并立即清空点击点所在的 staff 索引，避免过期值污染后续事件
+        const clickedStaffIndex = this._lastClickedStaffIndex;
+        this._lastClickedStaffIndex = null;
+
+        // 将 Score Beat 反向映射到 AST 偏移（传入实际点击的 staff 索引）
+        const offset = mapScoreBeatToAstOffset(beat, this._ast, clickedStaffIndex);
         if (offset === null) {
             return;
         }
