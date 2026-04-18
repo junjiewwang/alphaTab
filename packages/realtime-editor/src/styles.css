@@ -219,7 +219,8 @@ input {
 }
 
 .document-tab__select,
-.document-tab__close {
+.document-tab__close,
+.document-tab__menu {
     appearance: none;
     border: 0;
     background: transparent;
@@ -235,21 +236,54 @@ input {
     cursor: pointer;
 }
 
-.document-tab__close {
+.document-tab__close,
+.document-tab__menu {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 22px;
     height: 22px;
-    margin: 0 4px 0 0;
     border-radius: 999px;
     cursor: pointer;
     font-size: 13px;
     color: var(--text-muted);
-    transition: background 140ms ease, color 140ms ease;
+    transition: background 140ms ease, color 140ms ease, opacity 140ms ease;
+    /* 默认隐藏，hover / 激活 / 菜单打开 / 键盘焦点时显示 */
+    opacity: 0;
+    pointer-events: none;
+}
+
+.document-tab__close {
+    margin: 0 4px 0 0;
 }
 
 .document-tab__close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+}
+
+/* 更多操作按钮：视觉上略微居中紧贴 × */
+.document-tab__menu {
+    margin: 0 2px 0 0;
+    font-size: 15px;
+    line-height: 1;
+    letter-spacing: 1px;
+}
+
+/* × 与 ⋯ 统一显隐：hover 所在 tab / 激活 tab / 菜单打开 / 键盘焦点 */
+.document-tab:hover .document-tab__close,
+.document-tab:hover .document-tab__menu,
+.document-tab.is-active .document-tab__close,
+.document-tab.is-active .document-tab__menu,
+.document-tab__menu[aria-expanded="true"],
+.document-tab__close:focus-visible,
+.document-tab__menu:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.document-tab__menu:hover,
+.document-tab__menu[aria-expanded="true"] {
     background: rgba(255, 255, 255, 0.1);
     color: var(--text);
 }
@@ -266,6 +300,148 @@ input {
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 12px;
+}
+
+/* 触摸设备无 hover 状态，× 与 ⋯ 常驻显示保证可访问性 */
+@media (hover: none) {
+    .document-tab__close,
+    .document-tab__menu {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
+
+/* 就地重命名态 —— 让整个 select 区域呈现"可编辑"观感，label 获得 caret */
+.document-tab.is-renaming {
+    border-color: rgba(141, 216, 255, 0.9);
+    box-shadow: 0 0 0 2px rgba(141, 216, 255, 0.24);
+    background: rgba(15, 23, 32, 0.6);
+}
+
+.document-tab.is-renaming .document-tab__select {
+    /* 阻止 label 上的 click 冒泡触发激活/focus 编辑器 */
+    pointer-events: none;
+    cursor: text;
+}
+
+.document-tab.is-renaming .document-tab__label {
+    /* label 自身恢复可点击可编辑 */
+    pointer-events: auto;
+    max-width: none;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(141, 216, 255, 0.08);
+    outline: none;
+    cursor: text;
+    user-select: text;
+    caret-color: var(--accent-strong, #8dd8ff);
+}
+
+.document-tab.is-renaming .document-tab__menu,
+.document-tab.is-renaming .document-tab__close {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* 成功/失败短反馈动画 */
+@keyframes tabFlashSuccess {
+    0% {
+        background: rgba(141, 216, 255, 0.08);
+    }
+    30% {
+        background: rgba(80, 200, 120, 0.28);
+        box-shadow: 0 0 0 2px rgba(80, 200, 120, 0.35);
+    }
+    100% {
+        background: transparent;
+        box-shadow: none;
+    }
+}
+
+@keyframes tabFlashError {
+    0%, 100% {
+        transform: translateX(0);
+    }
+    25% {
+        transform: translateX(-3px);
+        background: rgba(255, 120, 120, 0.22);
+    }
+    75% {
+        transform: translateX(3px);
+        background: rgba(255, 120, 120, 0.22);
+    }
+}
+
+.document-tab.is-flash-success {
+    animation: tabFlashSuccess 600ms ease-out;
+}
+
+.document-tab.is-flash-error {
+    animation: tabFlashError 420ms ease-in-out;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Tab 操作菜单 — 悬浮弹层（更多操作）
+   ═══════════════════════════════════════════════════════════ */
+
+.tab-action-menu {
+    position: fixed;
+    z-index: 9999;
+    min-width: 140px;
+    padding: 4px;
+    border: 1px solid rgba(141, 216, 255, 0.24);
+    border-radius: 8px;
+    background: rgba(20, 28, 38, 0.98);
+    backdrop-filter: blur(12px);
+    box-shadow:
+        0 12px 32px rgba(0, 0, 0, 0.45),
+        0 2px 6px rgba(0, 0, 0, 0.25);
+    animation: tabActionMenuIn 120ms ease-out;
+}
+
+@keyframes tabActionMenuIn {
+    from {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.tab-action-menu__item {
+    appearance: none;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 7px 12px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.2;
+    text-align: left;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+}
+
+.tab-action-menu__item:hover,
+.tab-action-menu__item:focus-visible {
+    outline: none;
+    background: rgba(141, 216, 255, 0.14);
+}
+
+.tab-action-menu__item--danger {
+    color: rgba(255, 180, 180, 0.92);
+}
+
+.tab-action-menu__item--danger:hover,
+.tab-action-menu__item--danger:focus-visible {
+    background: rgba(255, 120, 120, 0.18);
+    color: rgba(255, 220, 220, 1);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1323,6 +1499,12 @@ input {
         height: 20px;
         margin-right: 3px;
         font-size: 11px;
+    }
+
+    .document-tab__menu {
+        width: 20px;
+        height: 20px;
+        font-size: 13px;
     }
 
     /* 次要按钮隐藏 */

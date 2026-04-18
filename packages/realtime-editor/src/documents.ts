@@ -198,7 +198,19 @@ function renderDocumentTabs(): void {
         const label = window.document.createElement('span');
         label.className = 'document-tab__label';
         label.textContent = workspaceDocument.displayName;
+        label.dataset.documentId = workspaceDocument.id;
         selectButton.appendChild(label);
+
+        // 更多操作按钮（悬浮/激活时淡入）
+        const menuButton = window.document.createElement('button');
+        menuButton.type = 'button';
+        menuButton.className = 'document-tab__menu';
+        menuButton.dataset.documentId = workspaceDocument.id;
+        menuButton.setAttribute('aria-label', `${workspaceDocument.displayName} 更多操作`);
+        menuButton.setAttribute('aria-haspopup', 'menu');
+        menuButton.setAttribute('aria-expanded', 'false');
+        menuButton.title = '更多操作';
+        menuButton.textContent = '⋯';
 
         const closeButton = window.document.createElement('button');
         closeButton.type = 'button';
@@ -209,6 +221,7 @@ function renderDocumentTabs(): void {
         closeButton.textContent = '×';
 
         tab.appendChild(selectButton);
+        tab.appendChild(menuButton);
         tab.appendChild(closeButton);
         dom.documentTabList.appendChild(tab);
     }
@@ -216,6 +229,28 @@ function renderDocumentTabs(): void {
     // 将激活标签滚动到可见区域
     scrollActiveTabIntoView();
     // 更新渐变遮罩状态
+    updateTabScrollIndicators();
+}
+
+/**
+ * 仅更新激活标签的视觉状态（class / aria-selected），不重建 DOM。
+ *
+ * 设计目的：避免因 `renderDocumentTabs()` 整体重渲染导致正在打开的菜单、
+ * 正处于 contenteditable 编辑态的 label 等被销毁。激活链路频繁触发，
+ * 使用原地更新远比重建 DOM 更稳。
+ */
+function updateActiveTabIndicator(): void {
+    const tabs = dom.documentTabList.querySelectorAll<HTMLElement>('.document-tab');
+    for (const tab of tabs) {
+        const id = tab.dataset.documentId;
+        const isActive = id === state.activeDocumentId;
+        tab.classList.toggle('is-active', isActive);
+        const select = tab.querySelector<HTMLButtonElement>('.document-tab__select');
+        if (select) {
+            select.setAttribute('aria-selected', String(isActive));
+        }
+    }
+    scrollActiveTabIntoView();
     updateTabScrollIndicators();
 }
 
@@ -251,14 +286,31 @@ function updateTabScrollIndicators(): void {
 
 export function setupDocumentTabs(): void {
     dom.documentTabList.setAttribute('role', 'tablist');
+
     dom.documentTabList.addEventListener('click', event => {
         const target = event.target as HTMLElement;
+
+        // 关闭按钮：立即关闭
         const closeButton = target.closest<HTMLButtonElement>('.document-tab__close');
         if (closeButton?.dataset.documentId) {
             closeDocument(closeButton.dataset.documentId);
             return;
         }
 
+        // 更多操作按钮：打开弹层菜单
+        const menuButton = target.closest<HTMLButtonElement>('.document-tab__menu');
+        if (menuButton?.dataset.documentId) {
+            event.stopPropagation();
+            openTabActionMenu(menuButton, menuButton.dataset.documentId);
+            return;
+        }
+
+        // 处于就地重命名输入状态时，点击 input 自身不应触发激活
+        if (target.closest('.document-tab__label[contenteditable="true"]')) {
+            return;
+        }
+
+        // 普通激活
         const selectButton = target.closest<HTMLButtonElement>('.document-tab__select');
         if (selectButton?.dataset.documentId) {
             activateDocument(selectButton.dataset.documentId);
@@ -305,6 +357,399 @@ export function markActiveDocumentSaved(): void {
     persistWorkspace();
 }
 
+// ─── 文档重命名（就地编辑标签） ───────────────────────────────
+
+/**
+ * 当前是否有正在进行的就地重命名操作。
+ * 用于防止同一 tab 上打开多个输入框，以及切换/关闭文档时自动提交。
+ */
+let activeInlineRename: {
+    documentId: string;
+    label: HTMLElement;
+    finish: (commit: boolean) => void;
+} | null = null;
+
+/**
+ * 校验并更新文档的 displayName。
+ *
+ * 行为：
+ * - 新名称为空 / 仅空白 → 拒绝，提示警告
+ * - 新名称与当前名称相同 → 视为成功（无操作）
+ * - 与其他 tab 冲突 → 拒绝，提示警告
+ * - 通过校验后：
+ *   - 若 `scoreTitle` 原本跟随 `displayName`，同步更新
+ *   - 若文档有 `fileHandle`（已关联磁盘文件）→ 清空句柄，
+ *     下次保存会通过"另存为"对话框写入新文件，符合"修改保存的文件名"语义
+ *   - 标记为脏（内容未变但要提示用户另存为）
+ *
+ * @returns 是否重命名成功
+ */
+export function renameDocument(documentId: string, rawName: string): boolean {
+    const target = getDocumentById(documentId);
+    if (!target) {
+        return false;
+    }
+
+    const trimmed = rawName.trim();
+    if (!trimmed) {
+        setStatus('warning', '重命名失败', '文件名不能为空');
+        return false;
+    }
+
+    if (trimmed === target.displayName) {
+        return true;
+    }
+
+    const conflict = getDocumentsInOrder().some(
+        other => other.id !== documentId && other.displayName === trimmed
+    );
+    if (conflict) {
+        setStatus('warning', '重命名失败', `名称「${trimmed}」已被其他标签使用`);
+        return false;
+    }
+
+    const titleFollowedDisplayName = target.scoreTitle === target.displayName;
+    const previousName = target.displayName;
+    target.displayName = trimmed;
+    if (titleFollowedDisplayName) {
+        target.scoreTitle = trimmed;
+    }
+
+    // 已关联磁盘文件 → 切断句柄，强制下次保存走"另存为"写入新文件名
+    let fileHandleCleared = false;
+    if (target.fileHandle) {
+        target.fileHandle = null;
+        target.hasFileHandle = false;
+        void removeFileHandle(documentId);
+        fileHandleCleared = true;
+        // 标记为脏，提示用户该名称尚未落盘
+        target.isDirty = true;
+    }
+
+    renderDocumentTabs();
+    persistWorkspace();
+
+    // 重命名成功后对目标 tab 做一次短暂的视觉反馈
+    flashTabFeedback(documentId, 'success');
+
+    if (state.activeDocumentId === documentId) {
+        dom.scoreTitle.textContent = target.scoreTitle || trimmed;
+    }
+
+    const subtitle = fileHandleCleared
+        ? `${previousName} → ${trimmed}（下次保存将另存为新文件）`
+        : `${previousName} → ${trimmed}`;
+    setStatus('ready', '已重命名', subtitle);
+    return true;
+}
+
+/**
+ * 为指定标签追加一次短暂的视觉反馈（success / error）。
+ * 通过切换 CSS 类触发动画，动画结束后自动移除，保持 DOM 干净。
+ */
+function flashTabFeedback(documentId: string, kind: 'success' | 'error'): void {
+    const tab = dom.documentTabList.querySelector<HTMLElement>(
+        `.document-tab[data-document-id="${CSS.escape(documentId)}"]`
+    );
+    if (!tab) {
+        return;
+    }
+    const className = kind === 'success' ? 'is-flash-success' : 'is-flash-error';
+    tab.classList.remove(className);
+    // 触发重排以保证动画能重新播放
+    void tab.offsetWidth;
+    tab.classList.add(className);
+    window.setTimeout(() => {
+        tab.classList.remove(className);
+    }, 600);
+}
+
+/**
+ * 在指定 label 元素上启动就地重命名（contenteditable 方案）。
+ *
+ * 交互规则：
+ * - 打开时自动选中不含扩展名的部分（符合主流 IDE 习惯）
+ * - Enter / 失焦 → 提交
+ * - Esc → 取消
+ * - 切换其他 tab / 开始另一次重命名 → 自动提交当前输入
+ *
+ * 实现说明：
+ * - 直接在 label (`<span>`) 上启用 `contenteditable`，**不替换 DOM**，
+ *   避免 `<button>` 内嵌 `<input>` 的非法嵌套以及节点替换引发的事件异常。
+ * - 编辑期间：
+ *   - 给外层 `.document-tab` 加 `is-renaming` 类，CSS 提供视觉边框
+ *   - 给内层 `.document-tab__select` 加 `pointer-events: none`，
+ *     防止 click 冒泡触发 activateDocument / focus 编辑器
+ */
+function startInlineRename(documentId: string, labelElement: HTMLElement): void {
+    // 若已有重命名在进行，先提交它
+    if (activeInlineRename) {
+        activeInlineRename.finish(true);
+    }
+
+    const target = getDocumentById(documentId);
+    if (!target) {
+        return;
+    }
+
+    const tabContainer = labelElement.closest<HTMLElement>('.document-tab');
+    const selectButton = labelElement.closest<HTMLButtonElement>('.document-tab__select');
+    if (!tabContainer || !selectButton) {
+        return;
+    }
+
+    const originalText = target.displayName;
+
+    // 进入编辑状态（仅切换属性与类名，不替换节点）
+    labelElement.setAttribute('contenteditable', 'plaintext-only');
+    labelElement.setAttribute('spellcheck', 'false');
+    labelElement.setAttribute('role', 'textbox');
+    labelElement.setAttribute('aria-label', '重命名当前文档');
+    tabContainer.classList.add('is-renaming');
+
+    let finished = false;
+    const finish = (commit: boolean) => {
+        if (finished) {
+            return;
+        }
+        finished = true;
+
+        const value = (labelElement.textContent ?? '').replace(/\r?\n/g, '').trim();
+
+        labelElement.removeEventListener('keydown', handleKeydown);
+        labelElement.removeEventListener('blur', handleBlur);
+        labelElement.removeEventListener('mousedown', stopBubble);
+        labelElement.removeEventListener('click', stopBubble);
+        labelElement.removeEventListener('paste', handlePaste);
+
+        labelElement.removeAttribute('contenteditable');
+        labelElement.removeAttribute('spellcheck');
+        labelElement.removeAttribute('role');
+        labelElement.removeAttribute('aria-label');
+        tabContainer.classList.remove('is-renaming');
+
+        if (activeInlineRename?.documentId === documentId) {
+            activeInlineRename = null;
+        }
+
+        if (!commit) {
+            labelElement.textContent = originalText;
+            return;
+        }
+
+        const ok = renameDocument(documentId, value);
+        if (!ok) {
+            // 校验失败（空名/冲突），恢复原名并闪红提示
+            labelElement.textContent = originalText;
+            flashTabFeedback(documentId, 'error');
+        }
+    };
+
+    const handleKeydown = (event: KeyboardEvent) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            finish(true);
+        } else if (event.key === 'Escape') {
+            event.preventDefault();
+            finish(false);
+        }
+    };
+    const handleBlur = () => finish(true);
+    const stopBubble = (event: Event) => event.stopPropagation();
+    // 阻止粘贴富文本（带 HTML/换行），只接受纯文本单行
+    const handlePaste = (event: ClipboardEvent) => {
+        event.preventDefault();
+        const text = event.clipboardData?.getData('text/plain') ?? '';
+        const sanitized = text.replace(/[\r\n\t]+/g, ' ').trim();
+        window.document.execCommand('insertText', false, sanitized);
+    };
+
+    labelElement.addEventListener('keydown', handleKeydown);
+    labelElement.addEventListener('blur', handleBlur);
+    labelElement.addEventListener('mousedown', stopBubble);
+    labelElement.addEventListener('click', stopBubble);
+    labelElement.addEventListener('paste', handlePaste);
+
+    activeInlineRename = { documentId, label: labelElement, finish };
+
+    // 选中文件名主干（扩展名前的部分）
+    labelElement.focus();
+    selectLabelStem(labelElement, originalText);
+}
+
+/**
+ * 在一个 contenteditable label 内选中不含扩展名的主干部分。
+ * 若没有扩展名，则全选。
+ */
+function selectLabelStem(labelElement: HTMLElement, fullText: string): void {
+    const dotIndex = fullText.lastIndexOf('.');
+    const selection = window.getSelection();
+    if (!selection) {
+        return;
+    }
+    const range = window.document.createRange();
+    const textNode = labelElement.firstChild;
+    if (!textNode || textNode.nodeType !== Node.TEXT_NODE) {
+        range.selectNodeContents(labelElement);
+    } else if (dotIndex > 0) {
+        range.setStart(textNode, 0);
+        range.setEnd(textNode, dotIndex);
+    } else {
+        range.selectNodeContents(labelElement);
+    }
+    selection.removeAllRanges();
+    selection.addRange(range);
+}
+
+// ─── Tab 操作菜单（更多操作弹层） ─────────────────────────────
+
+/**
+ * 当前打开的 tab 操作菜单引用，用于外部点击/Esc 关闭。
+ */
+let activeTabActionMenu: {
+    element: HTMLElement;
+    trigger: HTMLButtonElement;
+    close: () => void;
+} | null = null;
+
+/**
+ * 在指定触发按钮下方打开 tab 操作菜单。
+ *
+ * 设计要点：
+ * - 菜单位置基于触发按钮的视口坐标 `position: fixed` 定位，避免被 tab 容器的
+ *   `overflow: hidden / scroll` 裁切
+ * - 外部点击 / Esc / 窗口 resize / scroll 都会关闭菜单
+ * - 同一时间只允许一个菜单，打开新菜单前先关闭旧菜单
+ */
+function openTabActionMenu(trigger: HTMLButtonElement, documentId: string): void {
+    // 已打开的同触发点菜单 → 视为 toggle，关闭
+    if (activeTabActionMenu?.trigger === trigger) {
+        activeTabActionMenu.close();
+        return;
+    }
+    closeTabActionMenu();
+
+    const target = getDocumentById(documentId);
+    if (!target) {
+        return;
+    }
+
+    const menu = window.document.createElement('div');
+    menu.className = 'tab-action-menu';
+    menu.setAttribute('role', 'menu');
+
+    const items: Array<{ label: string; danger?: boolean; action: () => void }> = [
+        {
+            label: '重命名',
+            action: () => {
+                const label = dom.documentTabList.querySelector<HTMLElement>(
+                    `.document-tab[data-document-id="${CSS.escape(documentId)}"] .document-tab__label`
+                );
+                if (label) {
+                    startInlineRename(documentId, label);
+                }
+            }
+        }
+        // 关闭操作由 tab 自带的 × 按钮承担，菜单专注扩展低频操作，不重复入口。
+        // 未来可在此追加：复制文件名 / 另存为 / 关闭其他标签 等。
+    ];
+
+    for (const item of items) {
+        const button = window.document.createElement('button');
+        button.type = 'button';
+        button.className = 'tab-action-menu__item';
+        if (item.danger) {
+            button.classList.add('tab-action-menu__item--danger');
+        }
+        button.setAttribute('role', 'menuitem');
+        button.textContent = item.label;
+        button.addEventListener('click', event => {
+            event.stopPropagation();
+            closeTabActionMenu();
+            // 下一帧执行，确保菜单已从 DOM 移除，避免 action 内的 focus 流被打断
+            window.requestAnimationFrame(() => item.action());
+        });
+        menu.appendChild(button);
+    }
+
+    window.document.body.appendChild(menu);
+    positionTabActionMenu(menu, trigger);
+
+    trigger.setAttribute('aria-expanded', 'true');
+
+    const handleDocumentPointerDown = (event: Event) => {
+        if (!(event.target instanceof Node)) {
+            return;
+        }
+        if (menu.contains(event.target) || trigger.contains(event.target)) {
+            return;
+        }
+        closeTabActionMenu();
+    };
+    const handleKeydown = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') {
+            closeTabActionMenu();
+        }
+    };
+    const handleRelayout = () => closeTabActionMenu();
+
+    // 捕获阶段监听 pointerdown，优先于内部 click；避免误把点击当 tab 激活
+    window.document.addEventListener('pointerdown', handleDocumentPointerDown, true);
+    window.addEventListener('keydown', handleKeydown);
+    window.addEventListener('resize', handleRelayout);
+    window.addEventListener('scroll', handleRelayout, true);
+
+    activeTabActionMenu = {
+        element: menu,
+        trigger,
+        close: () => {
+            window.document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
+            window.removeEventListener('keydown', handleKeydown);
+            window.removeEventListener('resize', handleRelayout);
+            window.removeEventListener('scroll', handleRelayout, true);
+            menu.remove();
+            trigger.setAttribute('aria-expanded', 'false');
+            if (activeTabActionMenu?.element === menu) {
+                activeTabActionMenu = null;
+            }
+        }
+    };
+}
+
+/**
+ * 根据触发按钮定位菜单。默认在按钮下方 4px，超出视口右侧时改为右对齐，
+ * 超出视口底部时改为按钮上方显示。
+ */
+function positionTabActionMenu(menu: HTMLElement, trigger: HTMLElement): void {
+    const triggerRect = trigger.getBoundingClientRect();
+    // 先给一个不可见位置用于测量尺寸
+    menu.style.visibility = 'hidden';
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    const menuRect = menu.getBoundingClientRect();
+    const gap = 4;
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+
+    let left = triggerRect.left;
+    if (left + menuRect.width + gap > viewportW) {
+        left = Math.max(8, triggerRect.right - menuRect.width);
+    }
+
+    let top = triggerRect.bottom + gap;
+    if (top + menuRect.height + gap > viewportH) {
+        top = Math.max(8, triggerRect.top - menuRect.height - gap);
+    }
+
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(top)}px`;
+    menu.style.visibility = '';
+}
+
+function closeTabActionMenu(): void {
+    activeTabActionMenu?.close();
+}
+
 export function activateDocument(
     documentId: string,
     options: { focus?: boolean; render?: boolean; stopPlayback?: boolean } = {}
@@ -313,6 +758,13 @@ export function activateDocument(
     if (!targetDocument || !state.editor) {
         return;
     }
+
+    // 若正在进行就地重命名，先提交以保证 UI 状态一致
+    if (activeInlineRename) {
+        activeInlineRename.finish(true);
+    }
+    // 切换文档时关闭可能残留的操作菜单
+    closeTabActionMenu();
 
     if (options.stopPlayback !== false) {
         state.api?.stop();
@@ -328,7 +780,8 @@ export function activateDocument(
     resyncLspForModel(targetDocument.model);
     syncActiveDocumentUi();
     refreshDiagnostics();
-    renderDocumentTabs();
+    // 仅更新激活态，保留 DOM 节点，避免重建时销毁菜单 / contenteditable 编辑态
+    updateActiveTabIndicator();
     persistWorkspace();
 
     if (options.render !== false) {
@@ -609,6 +1062,13 @@ export function closeDocument(documentId: string): void {
     if (!targetDocument) {
         return;
     }
+
+    // 若正在对该文档重命名，先取消
+    if (activeInlineRename?.documentId === documentId) {
+        activeInlineRename.finish(false);
+    }
+    // 关闭可能残留的操作菜单
+    closeTabActionMenu();
 
     if (targetDocument.isDirty) {
         const confirmed = confirm(
