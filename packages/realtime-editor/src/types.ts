@@ -27,6 +27,16 @@ export type WorkspaceDocumentSnapshot = {
     scoreSubtitle: string;
     /** 标记该文档是否关联了 FileSystemFileHandle（用于恢复时从 IndexedDB 重新获取） */
     hasFileHandle?: boolean;
+    /** 最后一次内容变更的时间戳（毫秒）。在 handleActiveDocumentContentChanged 更新 */
+    lastModifiedAt?: number;
+    /** 最后一次保存到 savedContent 的时间戳（毫秒）。在 markActiveDocumentSaved 更新 */
+    lastSavedAt?: number;
+    /**
+     * 来自本地文件 `file.lastModified` 的磁盘修改时间（毫秒）。
+     * 仅当通过 `<input type="file">` 或 File System Access API 打开文件时可用。
+     * 用于在"查看详情"面板展示磁盘版本时间，帮用户定位同名文件的版本。
+     */
+    diskLastModifiedAt?: number;
 };
 
 export type WorkspaceSnapshot = {

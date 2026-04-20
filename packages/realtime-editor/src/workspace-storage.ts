@@ -23,7 +23,10 @@ function toSnapshot(): WorkspaceSnapshot {
         lastSuccessfulCode: document.lastSuccessfulCode,
         scoreTitle: document.scoreTitle,
         scoreSubtitle: document.scoreSubtitle,
-        hasFileHandle: document.hasFileHandle ?? false
+        hasFileHandle: document.hasFileHandle ?? false,
+        lastModifiedAt: document.lastModifiedAt,
+        lastSavedAt: document.lastSavedAt,
+        diskLastModifiedAt: document.diskLastModifiedAt
     }));
 
     return {

@@ -11,6 +11,7 @@ import {
     setStatus,
     state
 } from './state';
+import { buildTabTitleSummary, closeTabDetailsCard, openTabDetailsCard } from './tab-details-card';
 import type {
     DocumentSourceKind,
     ExampleId,
@@ -59,8 +60,11 @@ function createDocument(options: {
     lastSuccessfulCode?: string;
     isDirty?: boolean;
     fileHandle?: FileSystemFileHandle | null;
+    /** 来自 `file.lastModified` 的磁盘修改时间（ms）。仅在从本地打开文件时提供。 */
+    diskLastModifiedAt?: number;
 }): WorkspaceDocument {
     const id = createDocumentId();
+    const now = Date.now();
     const workspaceDocument: WorkspaceDocument = {
         id,
         displayName: createUniqueDisplayName(options.displayName),
@@ -76,7 +80,10 @@ function createDocument(options: {
         currentScore: null,
         currentTimeInfo: null,
         fileHandle: options.fileHandle ?? null,
-        hasFileHandle: Boolean(options.fileHandle)
+        hasFileHandle: Boolean(options.fileHandle),
+        lastModifiedAt: now,
+        lastSavedAt: now,
+        diskLastModifiedAt: options.diskLastModifiedAt
     };
 
     state.documents.set(workspaceDocument.id, workspaceDocument);
@@ -91,13 +98,16 @@ function createDocument(options: {
 }
 
 function restoreDocument(snapshot: WorkspaceSnapshot['documents'][number]): WorkspaceDocument {
+    const now = Date.now();
     const workspaceDocument: WorkspaceDocument = {
         ...snapshot,
         activeTrackIndexes: [...snapshot.activeTrackIndexes],
         model: createModel(snapshot.id, snapshot.content),
         currentScore: null,
         currentTimeInfo: null,
-        fileHandle: null
+        fileHandle: null,
+        lastModifiedAt: snapshot.lastModifiedAt ?? now,
+        lastSavedAt: snapshot.lastSavedAt ?? now
     };
 
     state.documents.set(workspaceDocument.id, workspaceDocument);
@@ -128,6 +138,29 @@ async function restoreFileHandle(workspaceDocument: WorkspaceDocument): Promise<
     } catch {
         // IndexedDB 读取失败时静默降级
         workspaceDocument.hasFileHandle = false;
+    }
+}
+
+/**
+ * 写盘成功后异步刷新文档的 `diskLastModifiedAt`。
+ *
+ * 统一在 `saveActiveDocument` / `saveActiveDocumentAs` 的 FSA 分支末尾调用，
+ * 避免每个写盘点各自重复"写后再读 getFile().lastModified"的样板。
+ *
+ * 失败时静默降级（保留旧值或 undefined），不影响保存流程主逻辑。
+ */
+async function refreshDiskLastModifiedFromHandle(workspaceDocument: WorkspaceDocument): Promise<void> {
+    const handle = workspaceDocument.fileHandle;
+    if (!handle) {
+        return;
+    }
+    try {
+        const file = await handle.getFile();
+        workspaceDocument.diskLastModifiedAt = file.lastModified || undefined;
+        renderDocumentTabs();
+        persistWorkspace();
+    } catch {
+        // 读取失败（如权限回收）→ 保留当前值，不打扰用户
     }
 }
 
@@ -187,7 +220,8 @@ function renderDocumentTabs(): void {
             'aria-selected',
             String(workspaceDocument.id === state.activeDocumentId)
         );
-        selectButton.title = workspaceDocument.displayName;
+        // 多行摘要作为原生 tooltip，hover 即可一眼看到来源/URI 等定位信息
+        selectButton.title = buildTabTitleSummary(workspaceDocument);
 
         const dirty = window.document.createElement('span');
         dirty.className = 'document-tab__dirty';
@@ -340,6 +374,7 @@ export function handleActiveDocumentContentChanged(): void {
 
     activeDocument.content = activeDocument.model.getValue();
     activeDocument.isDirty = activeDocument.content !== activeDocument.savedContent;
+    activeDocument.lastModifiedAt = Date.now();
     renderDocumentTabs();
     persistWorkspace();
 }
@@ -353,6 +388,7 @@ export function markActiveDocumentSaved(): void {
     activeDocument.savedContent = activeDocument.model.getValue();
     activeDocument.content = activeDocument.savedContent;
     activeDocument.isDirty = false;
+    activeDocument.lastSavedAt = Date.now();
     renderDocumentTabs();
     persistWorkspace();
 }
@@ -649,6 +685,13 @@ function openTabActionMenu(trigger: HTMLButtonElement, documentId: string): void
                     startInlineRename(documentId, label);
                 }
             }
+        },
+        {
+            label: '查看详情',
+            action: () => {
+                // 使用菜单触发按钮作为详情卡片的锚点，复用相同的视口边界自适应定位
+                openTabDetailsCard(trigger, documentId);
+            }
         }
         // 关闭操作由 tab 自带的 × 按钮承担，菜单专注扩展低频操作，不重复入口。
         // 未来可在此追加：复制文件名 / 另存为 / 关闭其他标签 等。
@@ -763,8 +806,9 @@ export function activateDocument(
     if (activeInlineRename) {
         activeInlineRename.finish(true);
     }
-    // 切换文档时关闭可能残留的操作菜单
+    // 切换文档时关闭可能残留的操作菜单 / 详情卡片
     closeTabActionMenu();
+    closeTabDetailsCard();
 
     if (options.stopPlayback !== false) {
         state.api?.stop();
@@ -836,7 +880,8 @@ async function openTextFile(file: File, fileHandle?: FileSystemFileHandle): Prom
         savedContent: text,
         scoreTitle: file.name,
         scoreSubtitle: fileHandle ? '已从文件系统打开' : '已加载文本文件',
-        fileHandle: fileHandle ?? null
+        fileHandle: fileHandle ?? null,
+        diskLastModifiedAt: file.lastModified || undefined
     });
 
     activateDocument(workspaceDocument.id);
@@ -850,7 +895,8 @@ async function openBinaryFile(file: File): Promise<void> {
         sourceKind: 'imported-file',
         savedContent: '',
         scoreTitle: file.name,
-        scoreSubtitle: '正在导入外部文件'
+        scoreSubtitle: '正在导入外部文件',
+        diskLastModifiedAt: file.lastModified || undefined
     });
 
     activateDocument(workspaceDocument.id, { render: false });
@@ -982,6 +1028,7 @@ export async function saveActiveDocument(): Promise<boolean> {
             await writable.close();
 
             markActiveDocumentSaved();
+            void refreshDiskLastModifiedFromHandle(activeDocument);
             setStatus('ready', '已保存', activeDocument.displayName);
             return true;
         } catch (error) {
@@ -1024,6 +1071,8 @@ async function saveActiveDocumentAs(): Promise<boolean> {
         // 降级：使用 downloadBlob（非安全上下文或不支持的浏览器）
         const { downloadBlob } = await import('./utils');
         downloadBlob(fallbackName, new Blob([content], { type: 'text/plain;charset=utf-8' }));
+        // 浏览器下载分支无法获知磁盘落盘时间，清空以免误导用户
+        activeDocument.diskLastModifiedAt = undefined;
         markActiveDocumentSaved();
         setStatus('ready', '已导出下载', `${fallbackName}（浏览器不支持直接保存，请在下载目录中查找）`);
         return true;
@@ -1046,6 +1095,7 @@ async function saveActiveDocumentAs(): Promise<boolean> {
         void saveFileHandle(activeDocument.id, handle);
 
         markActiveDocumentSaved();
+        void refreshDiskLastModifiedFromHandle(activeDocument);
         setStatus('ready', '已保存', handle.name);
         return true;
     } catch (error) {
@@ -1067,8 +1117,9 @@ export function closeDocument(documentId: string): void {
     if (activeInlineRename?.documentId === documentId) {
         activeInlineRename.finish(false);
     }
-    // 关闭可能残留的操作菜单
+    // 关闭可能残留的操作菜单 / 详情卡片
     closeTabActionMenu();
+    closeTabDetailsCard();
 
     if (targetDocument.isDirty) {
         const confirmed = confirm(
