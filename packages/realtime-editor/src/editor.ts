@@ -7,6 +7,16 @@ import { addTextMateGrammarSupport } from '@coderline/alphatab-monaco/textmate';
 import * as monaco from 'monaco-editor';
 // @ts-expect-error Monaco worker is provided by Vite
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import {
+    analyzePropertyValueContext,
+    buildParenValueCompletions,
+    buildPropertyNameCompletions,
+    buildPropertyValueCompletions,
+    detectDefinitionContext,
+    findDefinitionByLabel,
+    renderDefinitionMarkdown,
+    renderExamplesOnly
+} from './completion-docs';
 import { dom, state } from './state';
 import { escapeHtml, load } from './utils';
 
@@ -148,11 +158,25 @@ const supplementalLabels = new Set(
 );
 
 /**
+ * AlphaTex 中能充当"单词边界"的结构性分隔符。
+ *
+ * 除空白外，AlphaTex 还用 `()`、`{}`、`|`、`.`、`,` 等字符区分命令、参数、
+ * 属性、音符等结构。`findWordStartColumn` 需要在遇到这些字符时立刻停止
+ * 回溯，否则会把 `{`、`)` 等结构符错误地吞进补全的 replace range 里，
+ * 导致插入补全项时把 `{` 替换掉。
+ *
+ * 反斜杠 `\` 不在此集合中 —— 它是 AlphaTex 命令前缀（`\tempo`），必须被
+ * 纳入正在输入的单词范围，Monaco 才能按前缀做模糊匹配。
+ */
+const WORD_BOUNDARY_CHARS = new Set([' ', '\t', '(', ')', '{', '}', '|', ',', '.']);
+
+/**
  * 从光标位置向前扫描，找到当前正在输入的"单词"的起始列号。
  *
  * AlphaTex 语法中，命令以 `\` 开头（如 `\tempo`），但 Monaco 默认的
  * `wordPattern` 不包含 `\`，会将 `\tempo` 切分为 `\` + `tempo`。
- * 此函数向前扫描直到遇到空白或行首，确保 `\` 被包含在单词范围内。
+ * 此函数向前扫描直到遇到 {@link WORD_BOUNDARY_CHARS} 中的分隔符或行首，
+ * 确保 `\` 被纳入单词范围而结构符（`{`、`}`、`(`、`)` 等）不被吞入。
  *
  * @param model  - 当前 Monaco 文本模型
  * @param position - 光标位置
@@ -165,20 +189,28 @@ function findWordStartColumn(
     const lineContent = model.getLineContent(position.lineNumber);
     // Monaco 列号是 1-based，转为 0-based 索引进行扫描
     let idx = position.column - 2; // column-1 是光标前一字符的 0-based index
-    while (idx >= 0 && lineContent[idx] !== ' ' && lineContent[idx] !== '\t') {
+    while (idx >= 0 && !WORD_BOUNDARY_CHARS.has(lineContent[idx])) {
         idx--;
     }
-    // idx 现在停在空白字符或 -1（行首），所以起始列 = idx + 2（转回 1-based）
+    // idx 现在停在分隔符或 -1（行首），所以起始列 = idx + 2（转回 1-based）
     return idx + 2;
 }
 
 /**
- * 增强补全项列表：修正 range、清除强制排序，并补充缺失的命令。
+ * 增强补全项列表：修正 range、清除强制排序，按上下文补充遗漏的命令，
+ * 并把每个补全项的 documentation 重写为包含 syntax / parameters /
+ * values / examples 的富 Markdown 卡片（L1 增强）。
  *
  * 解决上游 LSP bridge 的三个问题：
  *   1. **range 零宽度**：被设置为光标处 (col → col)，Monaco 无法识别已输入前缀
  *   2. **sortText 强制排序**：按声明顺序赋值 "a","b","c"...，覆盖模糊匹配排序
  *   3. **barIndex > 0 时遗漏命令**：scoreMetaData/staffMetaData 被排除
+ *
+ * 注入命令（问题 3 的修复）**仅在命令级上下文**生效 —— 若光标位于 `{}`
+ * 或 `()` 内，上游返回的是属性/参数级补全，此时注入 `\xxx` 命令会污染列表。
+ *
+ * Documentation 增强是可选的：若 {@link findDefinitionByLabel} 未命中
+ * （如上游新增的命令本地还未引入），则保留上游原始 documentation。
  *
  * @param result    - 上游 provider 返回的原始补全结果
  * @param model     - 当前 Monaco 文本模型
@@ -200,36 +232,168 @@ function enhanceCompletionResult(
         position.column
     );
 
-    // 收集上游已返回的 label 集合，用于判断是否需要补充
-    const existingLabels = new Set(
-        result.suggestions.map(s => s.label as string)
-    );
+    // ── 属性块 / 括号参数列表内：接管补全列表 ──
+    // 上游 LSP 的 createPropertiesCompletions 依赖 AST binaryNodeSearch 定位
+    // property 节点；当光标位于属性尾部空格处（如 `{showName ❘}`）或位于
+    // `()` 参数列表内（如 `\chord (❘)` / `{barre(❘)}`）时，AST 命中失败，
+    // 兜底返回混合噪声或完全无结果。
+    //
+    // 这里先做一次上下文分析：
+    //   - property-name / property-value → 本地候选（上一轮 A4 实现）
+    //   - paren-value → 本地候选（A5，覆盖 \chord(...) 和 {barre(...)} 两种）
+    // 命中时**完全替换** result.suggestions；未命中（kind: 'none'）继续走
+    // 下方既有路径，保证可降级。
+    const propContext = analyzePropertyValueContext(model, position);
+    if (propContext.kind === 'property-value' && propContext.currentProperty) {
+        const items = buildPropertyValueCompletions(
+            propContext.currentProperty,
+            correctedRange,
+            monaco
+        );
+        if (items.length > 0) {
+            result.suggestions = items;
+            return result;
+        }
+        // items 为空（既无 values 也无 defaultValue）→ 降级到上游逻辑
+    } else if (propContext.kind === 'property-name' && propContext.nearestCommand) {
+        const items = buildPropertyNameCompletions(
+            propContext.nearestCommand,
+            correctedRange,
+            monaco
+        );
+        if (items.length > 0) {
+            result.suggestions = items;
+            return result;
+        }
+    } else if (
+        propContext.kind === 'paren-value' &&
+        propContext.parenOwner &&
+        propContext.valueIndex !== undefined
+    ) {
+        const items = buildParenValueCompletions(
+            propContext.parenOwner,
+            propContext.valueIndex,
+            correctedRange,
+            monaco
+        );
+        if (items.length > 0) {
+            result.suggestions = items;
+            return result;
+        }
+    }
+
+    // 预先解析上下文，后续 documentation 反查和命令补充都会复用
+    const defContext = detectDefinitionContext(model, position);
 
     for (const suggestion of result.suggestions) {
         // 修正 range：让 Monaco 知道用户已经输入了 `\temp` 这样的前缀
         suggestion.range = correctedRange;
         // 清除 sortText：让 Monaco 基于用户输入的前缀进行模糊匹配排序
         suggestion.sortText = undefined;
+
+        // 重写 documentation 为富卡片（L1）：加入 syntax / parameters / values / examples
+        enrichSuggestionDocumentation(suggestion, defContext);
     }
 
-    // 补充上游在 barIndex > 0 时遗漏的 scoreMetaData / staffMetaData 命令
-    // 通过检测 supplementalLabels 中是否有 label 未出现在上游结果中来判断
+    // 仅在"命令级"上下文才补充被上游排除的 scoreMetaData/staffMetaData 命令。
+    // 在 `{}` / `()` 内，上游返回的是属性/参数/音符级补全，注入命令会造成噪声。
+    if (defContext.kind !== 'command') {
+        return result;
+    }
+
+    // 收集上游已返回的 label，用 O(1) 判定补充项是否已存在
+    const existingLabels = new Set(
+        result.suggestions.map(s => s.label as string)
+    );
     const needsSupplement = [...supplementalLabels].some(
         label => !existingLabels.has(label)
     );
 
     if (needsSupplement) {
         for (const item of supplementalCompletionItems) {
-            if (!existingLabels.has(item.label as string)) {
-                result.suggestions.push({
-                    ...item,
-                    range: correctedRange
-                });
+            if (existingLabels.has(item.label as string)) {
+                continue;
             }
+            // 补充项也走一次 documentation 增强，保持卡片风格一致
+            const enriched: monaco.languages.CompletionItem = {
+                ...item,
+                range: correctedRange
+            };
+            enrichSuggestionDocumentation(enriched, defContext);
+            result.suggestions.push(enriched);
         }
     }
 
     return result;
+}
+
+/**
+ * 从 suggestion 提取规范化 label（去除 `labelDetails` 干扰）。
+ * Monaco `label` 可以是 string 或 `{label: string; ...}`；
+ * 此处统一取字符串形态。
+ */
+function resolveSuggestionLabel(
+    suggestion: monaco.languages.CompletionItem
+): string {
+    const raw = suggestion.label;
+    return typeof raw === 'string' ? raw : raw.label;
+}
+
+/**
+ * 若能在 `@coderline/alphatab-alphatex/definitions` 中反查到对应定义，
+ * 把 suggestion 的 documentation 替换为富 Markdown 卡片。未命中时保留
+ * 上游原始 documentation，确保可降级。
+ */
+function enrichSuggestionDocumentation(
+    suggestion: monaco.languages.CompletionItem,
+    context: ReturnType<typeof detectDefinitionContext>
+): void {
+    const label = resolveSuggestionLabel(suggestion);
+    const def = findDefinitionByLabel(label, context);
+    if (!def) {
+        return;
+    }
+
+    const markdown = renderDefinitionMarkdown(def);
+    if (!markdown) {
+        return;
+    }
+
+    suggestion.documentation = {
+        value: markdown,
+        // Markdown 中嵌入的是上游定义里的描述文本，来源可信，允许渲染
+        isTrusted: false,
+        supportThemeIcons: false
+    };
+}
+
+/**
+ * 希望让 Monaco 在哪些字符被键入时自动触发补全。
+ *
+ * 上游 `packages/lsp/src/server/index.ts` 的 `completionProvider` 未声明
+ * `triggerCharacters`，导致在 `{`、空格等关键位置需要手动 Ctrl+Space 才能
+ * 看到属性/参数补全 —— 尤其是 `\chord (...) {` 后按上游能力完全看不到
+ * `firstFret`、`showDiagram` 等属性提示。
+ *
+ * 此处在 Monaco 层补齐触发字符：
+ *   - `\` : 命令级（输入反斜杠即期望看到命令列表）
+ *   - `{` : 属性块入口（chord/duration-change 等的属性补全）
+ *   - ` ` : 属性值 / 参数分隔（`firstFret ` 后的值列表 / enum）
+ *   - `(` : 参数列表入口（上游已为 signatureHelp 声明了 `(`，顺带用于补全）
+ *
+ * 与上游若未来自行声明 triggerCharacters，需在合并时去重，不会有正确性问题。
+ */
+const LOCAL_TRIGGER_CHARACTERS = ['\\', '{', ' ', '('];
+
+/**
+ * 合并上游 provider 已声明的触发字符与本地期望字符，返回去重后的数组。
+ */
+function mergeTriggerCharacters(upstream: readonly string[] | undefined): string[] {
+    const merged = new Set<string>(upstream ?? []);
+    for (const ch of LOCAL_TRIGGER_CHARACTERS) {
+        merged.add(ch);
+    }
+    return [...merged];
 }
 
 /**
@@ -241,7 +405,8 @@ function enhanceCompletionResult(
  *   2. 当上游 `basicEditorLspIntegration()` 调用该方法注册 provider 时，
  *      我们拦截到 provider 对象并包装其 `provideCompletionItems`
  *   3. 包装函数调用原始实现后，对结果执行 {@link enhanceCompletionResult}
- *   4. 注册完成后恢复原始方法，不影响后续其他 provider 注册
+ *   4. 同时补齐上游遗漏的 `triggerCharacters`（见 {@link LOCAL_TRIGGER_CHARACTERS}）
+ *   5. 注册完成后恢复原始方法，不影响后续其他 provider 注册
  *
  * **为什么不直接修改上游代码**：
  *   本项目基于 `@coderline/alphatab` 开源代码二次开发，
@@ -255,8 +420,7 @@ function patchCompletionProvider(): () => void {
 
     monaco.languages.registerCompletionItemProvider = function (
         languageSelector: monaco.languages.LanguageSelector,
-        provider: monaco.languages.CompletionItemProvider,
-        ...triggerCharacters: string[]
+        provider: monaco.languages.CompletionItemProvider
     ) {
         const originalProvide = provider.provideCompletionItems.bind(provider);
 
@@ -279,11 +443,131 @@ function patchCompletionProvider(): () => void {
                 : rawResult;
         };
 
-        return original.call(monaco.languages, languageSelector, provider, ...triggerCharacters);
+        // 合并上游已声明的 triggerCharacters（来自 provider 对象）与本地期望字符
+        provider.triggerCharacters = mergeTriggerCharacters(provider.triggerCharacters);
+
+        // Monaco 的 `registerCompletionItemProvider` 在某些类型声明版本下
+        // 是 `(selector, provider)` 签名（不再接收 rest 参数），TS 的严格
+        // 模式会把 `...triggerCharacters` 扩张视为 arity 不匹配。
+        // 运行时我们不实际使用 rest 参数（trigger 字符已经通过
+        // `provider.triggerCharacters` 生效），因此直接 2 参调用即可。
+        return original.call(monaco.languages, languageSelector, provider);
     };
 
     return () => {
         monaco.languages.registerCompletionItemProvider = original;
+    };
+}
+
+// ─── LSP Hover 增强（L2） ─────────────────────────────────────
+
+/**
+ * 猴子补丁：拦截上游 LSP bridge 的 HoverProvider 注册，包装其
+ * `provideHover` 方法，在上游返回内容末尾追加 `**Example:**` 段。
+ *
+ * **最小侵入策略**：
+ *   - 不接管上游的 description / syntax / parameters —— 上游
+ *     `packages/lsp/src/server/hover.ts` 已经渲染得不错
+ *   - **只追加 examples**，保证行为可降级：上游若改 hover 格式，
+ *     此追加逻辑不会碎（基于 `contents` 数组 concat）
+ *   - 反查失败（label 不是已知命令/属性）时直接透传原结果
+ *
+ * **为什么不独立注册 HoverProvider**：
+ *   Monaco 会把多个 HoverProvider 的结果**合并显示为多张卡片**，
+ *   视觉上会出现上下两张卡，割裂感强。追加到上游 hover 内容里能
+ *   保证"一张卡片展示所有信息"。
+ *
+ * @returns 恢复函数 — 调用后将 `registerHoverProvider` 还原为原始实现
+ */
+function patchHoverProvider(): () => void {
+    const original = monaco.languages.registerHoverProvider;
+
+    monaco.languages.registerHoverProvider = function (
+        languageSelector: monaco.languages.LanguageSelector,
+        provider: monaco.languages.HoverProvider
+    ) {
+        const originalProvide = provider.provideHover?.bind(provider);
+        if (!originalProvide) {
+            return original.call(monaco.languages, languageSelector, provider);
+        }
+
+        provider.provideHover = function (
+            model: monaco.editor.ITextModel,
+            position: monaco.Position,
+            token: monaco.CancellationToken,
+            hoverContext?: monaco.languages.HoverContext<monaco.languages.Hover>
+        ) {
+            const rawResult = originalProvide(model, position, token, hoverContext!);
+
+            if (rawResult && typeof (rawResult as Promise<monaco.languages.Hover>).then === 'function') {
+                return (rawResult as Promise<monaco.languages.Hover | null | undefined>).then(
+                    result => enrichHoverWithExamples(result, model, position)
+                );
+            }
+            return enrichHoverWithExamples(
+                rawResult as monaco.languages.Hover | null | undefined,
+                model,
+                position
+            );
+        };
+
+        return original.call(monaco.languages, languageSelector, provider);
+    };
+
+    return () => {
+        monaco.languages.registerHoverProvider = original;
+    };
+}
+
+/**
+ * 在上游 hover 结果末尾追加 examples 段（若反查到定义且定义包含 examples）。
+ *
+ * 反查流程：
+ *   1. 读取光标位置的 word（Monaco `getWordAtPosition`）
+ *   2. 若 word 前一字符是 `\`，拼成 `\word` 作为命令 label；否则作为属性 label
+ *   3. 调用 {@link detectDefinitionContext} 确定上下文（用于属性反查的 scope）
+ *   4. 调用 {@link findDefinitionByLabel} 反查定义
+ *   5. 调用 {@link renderExamplesOnly} 生成 examples Markdown
+ *   6. 以新的 `IMarkdownString` 项 push 到 `contents` 末尾
+ *
+ * 反查任一步失败都原样返回上游结果（幂等、无副作用）。
+ */
+function enrichHoverWithExamples(
+    raw: monaco.languages.Hover | null | undefined,
+    model: monaco.editor.ITextModel,
+    position: monaco.Position
+): monaco.languages.Hover | null | undefined {
+    if (!raw) {
+        return raw;
+    }
+
+    const word = model.getWordAtPosition(position);
+    if (!word) {
+        return raw;
+    }
+
+    // 判断这个 word 是命令（前缀 `\`）还是属性（裸标识符）
+    const lineContent = model.getLineContent(position.lineNumber);
+    const charBefore = word.startColumn >= 2 ? lineContent[word.startColumn - 2] : '';
+    const label = charBefore === '\\' ? `\\${word.word}` : word.word;
+
+    const context = detectDefinitionContext(model, position);
+    const def = findDefinitionByLabel(label, context);
+    if (!def) {
+        return raw;
+    }
+
+    const examplesMd = renderExamplesOnly(def);
+    if (!examplesMd) {
+        return raw;
+    }
+
+    return {
+        ...raw,
+        contents: [
+            ...raw.contents,
+            { value: examplesMd, isTrusted: false, supportThemeIcons: false }
+        ]
     };
 }
 
@@ -292,8 +576,9 @@ function patchCompletionProvider(): () => void {
 async function setupLspAlphaTexLanguageSupport(
     editor: monaco.editor.IStandaloneCodeEditor
 ): Promise<void> {
-    // 在上游注册 CompletionItemProvider 之前安装猴子补丁
+    // 在上游注册 CompletionItemProvider / HoverProvider 之前安装猴子补丁
     const restoreCompletionProvider = patchCompletionProvider();
+    const restoreHoverProvider = patchHoverProvider();
 
     await basicEditorLspIntegration(
         editor,
@@ -325,6 +610,7 @@ async function setupLspAlphaTexLanguageSupport(
 
     // 注册完成后恢复原始方法，不影响后续其他 provider 注册
     restoreCompletionProvider();
+    restoreHoverProvider();
 }
 
 // ─── LSP 重同步 ──────────────────────────────────────────────
