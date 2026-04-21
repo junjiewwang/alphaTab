@@ -296,6 +296,18 @@ export function renderExamplesOnly(def: WithSignatures): string | undefined {
     return renderExamplesBlock(def.examples);
 }
 
+/**
+ * Type alias for the range field of a Monaco completion item.
+ *
+ * Monaco accepts either a single `IRange` or an `IInsertReplaceRange`
+ * (`CompletionItemRanges`) with separate insert/replace sub-ranges.
+ * We expose the union so callers can pass whichever they built —
+ * `editor.ts` now uses `CompletionItemRanges` to prevent the default
+ * wordPattern-based replace-range derivation from swallowing the
+ * leading `{` / `\` character in AlphaTex.
+ */
+export type CompletionRange = monaco.IRange | monaco.languages.CompletionItemRanges;
+
 // ─── Property-value context analysis ────────────────────────────────
 
 /**
@@ -322,8 +334,25 @@ export function renderExamplesOnly(def: WithSignatures): string | undefined {
  */
 export interface PropertyCompletionContext {
     kind: 'property-value' | 'property-name' | 'paren-value' | 'none';
-    /** The nearest owning command tag (e.g. `\chord`). Present for `{}` contexts. */
+    /**
+     * The nearest owning command tag (e.g. `\chord`). Present for `{}`
+     * contexts that are attached to a metadata command. **Absent** for
+     * beat-property blocks like `(0.1 2.3){ch "Am"}` which have no
+     * leading `\xxx` command — those blocks resolve their property
+     * scope from {@link propertiesScope} instead.
+     */
     nearestCommand?: string;
+    /**
+     * The property map that governs which identifiers may appear as
+     * property names inside this brace block. Callers use this map both
+     * during state-machine tokenization (to resolve `propName`) and
+     * when building completion items (the {@link buildPropertyNameCompletions}
+     * now reads this scope directly rather than re-deriving it from
+     * `nearestCommand`, so beat-property blocks work uniformly).
+     *
+     * Populated for `property-name` and `property-value` contexts.
+     */
+    propertiesScope?: Map<string, PropertyDefinition>;
     /**
      * When `kind === 'property-value'`, the property definition whose values
      * should be suggested. Lowercase property-key lookup already done.
@@ -341,6 +370,18 @@ export interface PropertyCompletionContext {
      * command) or a `PropertyDefinition` (nested inside `{}`).
      */
     parenOwner?: WithSignatures;
+    /**
+     * When `kind === 'property-value'` or `kind === 'paren-value'`,
+     * indicates whether the cursor is positioned **inside an unclosed
+     * quoted string** (e.g. `{ch "❘"}` or `\chord ("A❘m" …)`). Caller
+     * needs this to decide whether to inject string-valued candidates
+     * (like the list of declared chord names) that must *not* include
+     * surrounding quotes — the quotes are already typed by the user.
+     *
+     * Set to `true` when the containing scope's scan encounters an
+     * opening quote (`"` or `'`) that remains unclosed before the cursor.
+     */
+    insideQuote?: boolean;
 }
 
 /**
@@ -436,7 +477,7 @@ function analyzeParenValueContext(
 
     // Count value slots already filled inside the parens to derive valueIndex.
     const inner = lineContent.substring(openParenIdx + 1, cursorIdx);
-    const { tokens, trailingOpen } = tokenizeParenBody(inner);
+    const { tokens, trailingOpen, insideQuote } = tokenizeParenBody(inner);
     // `trailingOpen` means cursor is glued to the last token — that
     // token *is* what the user is currently typing, so the effective
     // slot is still `tokens.length - 1`.
@@ -446,40 +487,94 @@ function analyzeParenValueContext(
         kind: 'paren-value',
         nearestCommand,
         parenOwner: owner,
-        valueIndex
+        valueIndex,
+        insideQuote
     };
 }
 
 /**
- * Existing property-block analysis, unchanged semantically. Extracted
- * so {@link analyzePropertyValueContext} can dispatch cleanly between
- * brace and paren branches.
+ * Resolve the property scope for a `{}` block.
+ *
+ * The scope decides which identifiers are valid **property names** inside
+ * the braces. Two shapes are supported:
+ *
+ * 1. **Command-scoped block** — `\chord (…) {firstFret(3) showDiagram}`
+ *    The braces are preceded by a metadata tag; properties come from
+ *    `owner.properties`.
+ *
+ * 2. **Beat-property block** — `(0.1 1.2){ch "Am" dy ppp}`
+ *    The braces hang off a beat (no `\xxx` prefix); properties come
+ *    from the global `beatProperties` map.
+ *
+ * Rationale for the fallback (Q = b, 宽松策略): any `{}` without a
+ * detectable enclosing command is overwhelmingly a beat-property block
+ * in real scores, and surfacing beat-property candidates there is
+ * strictly more useful than returning `none` (which degrades to an empty
+ * "No suggestions" popup). Edge cases like stray `{}` tokens gracefully
+ * show the beat-property list — harmless noise, not a correctness bug.
+ */
+function resolveBracePropertyScope(
+    nearestCommand: string | undefined
+): Map<string, PropertyDefinition> | undefined {
+    if (nearestCommand) {
+        const owner = findMetadataByTag(nearestCommand);
+        if (owner?.properties && owner.properties.size > 0) {
+            return owner.properties;
+        }
+        // Command exists but declares no properties — do not fall back
+        // silently, that would mask a genuine "no candidates" state.
+        return undefined;
+    }
+    // No enclosing command → this is a beat-property block.
+    return beatProperties;
+}
+
+/**
+ * Existing property-block analysis, now generalized to handle both
+ * command-scoped (`\chord (…) {…}`) and beat-property (`(…){…}`) blocks
+ * through {@link resolveBracePropertyScope}.
  */
 function analyzeBraceContext(
     lineContent: string,
     cursorIdx: number,
     openBraceIdx: number
 ): PropertyCompletionContext {
-    // --- Step 2: resolve the owning command. ---
+    // --- Step 2: resolve the property scope (command-based or beat-based). ---
     const nearestCommand = findNearestCommand(lineContent, openBraceIdx - 1);
-    if (!nearestCommand) {
-        return { kind: 'none' };
-    }
-    const owner = findMetadataByTag(nearestCommand);
-    if (!owner?.properties || owner.properties.size === 0) {
+    const propertiesScope = resolveBracePropertyScope(nearestCommand);
+    if (!propertiesScope) {
         return { kind: 'none' };
     }
 
     // --- Step 3: tokenize from `{` (exclusive) up to the cursor. ---
     const inner = lineContent.substring(openBraceIdx + 1, cursorIdx);
-    const { tokens, trailingOpen } = tokenizePropertyBlock(inner);
+    const { tokens, trailingOpen, insideQuote } = tokenizePropertyBlock(inner);
 
     // --- Step 4: state-machine walk. ---
+    //
+    // 关键：最后一个 token 是否与光标"粘连"（即 `trailingOpen=true` 且
+    // 该 token 就是 tokens[tokens.length-1]）决定了我们对它的容错态度：
+    //
+    //   - 已闭合 token（中间的、由 whitespace/`)` flush 掉的）必须是
+    //     合法 property 名或 value，否则文本确实无效，bail `none`
+    //     避免把错误上下文误导成补全候选。
+    //   - **尾部 open token**（trailing）是用户正在键入的前缀，形如
+    //     `{barre(1) firstFret(2) s❘}` 的 `s`、`{sh❘}` 的 `sh`。这类
+    //     token 故意**不要求**命中已定义 property —— 它只是前缀，应当
+    //     让 Monaco 拿到完整 property-name 列表后用自带的模糊匹配
+    //     过滤（`s` → `showDiagram/showFingering/showName`）。
+    //
+    // 先前实现在上面这种"合法前缀"场景下 bail `none` → UI 显示
+    // "No suggestions"，表现为"有空格触发正常、紧接字符触发失败"。
+    const trailingTokenIdx =
+        trailingOpen && tokens.length > 0 ? tokens.length - 1 : -1;
+
     let currentProperty: PropertyDefinition | undefined;
     let currentMaxParams = 0;
     let consumedValues = 0;
 
-    for (const token of tokens) {
+    for (let idx = 0; idx < tokens.length; idx++) {
+        const token = tokens[idx];
         if (token === ARGS_CLOSED_SENTINEL) {
             // `propName(args)` was already tokenized as [propName, sentinel].
             // The preceding iteration resolved `currentProperty`; now mark
@@ -492,11 +587,24 @@ function analyzeBraceContext(
             // artifact (e.g. `{() foo}`) — just skip it.
             continue;
         }
+        const isTrailingToken = idx === trailingTokenIdx;
         if (!currentProperty || consumedValues >= currentMaxParams) {
             // Expecting a property name.
-            const def = owner.properties.get(token.toLowerCase());
+            const def = propertiesScope.get(token.toLowerCase());
             if (!def) {
-                // Unrecognized property name — bail out rather than mislead.
+                if (isTrailingToken) {
+                    // 尾部前缀不匹配任何已知 property —— 这是合法的
+                    // "正在键入 property 名"状态。直接短路返回
+                    // property-name 上下文（让 Monaco 拿完整列表 +
+                    // 前缀模糊过滤处理）。
+                    //
+                    // 关键：不能落到 Step 5 来推导 —— 此时
+                    // `currentProperty` 可能是上一个刚闭合的 property
+                    // （consumedValues=max），Step 5 会把它误判成
+                    // property-value 分支。
+                    return { kind: 'property-name', nearestCommand, propertiesScope };
+                }
+                // 已闭合 token 仍然要求合法 —— 否则上下文真的不可知。
                 return { kind: 'none' };
             }
             currentProperty = def;
@@ -511,20 +619,22 @@ function analyzeBraceContext(
     // --- Step 5: decide the current cursor state. ---
     if (trailingOpen) {
         if (tokens.length === 0) {
-            return { kind: 'property-name', nearestCommand };
+            return { kind: 'property-name', nearestCommand, propertiesScope };
         }
         if (currentProperty && consumedValues === 0) {
-            return { kind: 'property-name', nearestCommand };
+            return { kind: 'property-name', nearestCommand, propertiesScope };
         }
         if (currentProperty) {
             return {
                 kind: 'property-value',
                 nearestCommand,
+                propertiesScope,
                 currentProperty,
-                valueIndex: consumedValues - 1
+                valueIndex: consumedValues - 1,
+                insideQuote
             };
         }
-        return { kind: 'property-name', nearestCommand };
+        return { kind: 'property-name', nearestCommand, propertiesScope };
     }
 
     // Cursor is after whitespace (or right after `{`).
@@ -532,11 +642,13 @@ function analyzeBraceContext(
         return {
             kind: 'property-value',
             nearestCommand,
+            propertiesScope,
             currentProperty,
-            valueIndex: consumedValues
+            valueIndex: consumedValues,
+            insideQuote
         };
     }
-    return { kind: 'property-name', nearestCommand };
+    return { kind: 'property-name', nearestCommand, propertiesScope };
 }
 
 /**
@@ -553,7 +665,7 @@ function analyzeBraceContext(
  */
 export function buildPropertyValueCompletions(
     def: PropertyDefinition,
-    range: monaco.IRange,
+    range: CompletionRange,
     monacoApi: typeof monaco
 ): monaco.languages.CompletionItem[] {
     const items: monaco.languages.CompletionItem[] = [];
@@ -605,27 +717,25 @@ export function buildPropertyValueCompletions(
 }
 
 /**
- * Build completion items for the property *names* of a command.
+ * Build completion items for the property *names* available in a given scope.
  *
- * `properties` map is keyed by lowercase id; the user-facing label comes
+ * `scope` is keyed by lowercase id; the user-facing label comes
  * from `prop.property` (preserves original camelCase like `showDiagram`).
  *
  * The snippet is `${property} ` so Monaco auto-inserts a space after
  * accepting, placing the cursor exactly where the property-value
  * completion should re-trigger.
+ *
+ * Callers pass either a command's `owner.properties` (for `\chord {…}`
+ * style blocks) or the global `beatProperties` map (for `(…){…}` blocks).
  */
 export function buildPropertyNameCompletions(
-    commandTag: string,
-    range: monaco.IRange,
+    scope: Map<string, PropertyDefinition>,
+    range: CompletionRange,
     monacoApi: typeof monaco
 ): monaco.languages.CompletionItem[] {
-    const owner = findMetadataByTag(commandTag);
-    if (!owner?.properties) {
-        return [];
-    }
-
     const items: monaco.languages.CompletionItem[] = [];
-    for (const prop of owner.properties.values()) {
+    for (const prop of scope.values()) {
         items.push({
             label: prop.property,
             kind: monacoApi.languages.CompletionItemKind.Property,
@@ -666,7 +776,7 @@ export function buildPropertyNameCompletions(
 export function buildParenValueCompletions(
     owner: WithSignatures,
     valueIndex: number,
-    range: monaco.IRange,
+    range: CompletionRange,
     monacoApi: typeof monaco
 ): monaco.languages.CompletionItem[] {
     const reachableParams = collectParametersAtIndex(owner, valueIndex);
@@ -905,7 +1015,11 @@ function findEnclosingOpenBrace(lineContent: string, cursorIdx: number): number 
  */
 const ARGS_CLOSED_SENTINEL = '\x00args-closed\x00';
 
-function tokenizePropertyBlock(inner: string): { tokens: string[]; trailingOpen: boolean } {
+function tokenizePropertyBlock(inner: string): {
+    tokens: string[];
+    trailingOpen: boolean;
+    insideQuote: boolean;
+} {
     const tokens: string[] = [];
     let buffer = '';
     let inQuote: '"' | "'" | null = null;
@@ -973,15 +1087,24 @@ function tokenizePropertyBlock(inner: string): { tokens: string[]; trailingOpen:
     if (trailingOpen) {
         tokens.push(buffer);
     }
-    return { tokens, trailingOpen };
+    return { tokens, trailingOpen, insideQuote: inQuote !== null };
 }
 
 /**
  * Tokenize the body of a `()` argument list. Like {@link tokenizePropertyBlock}
  * but without paren-awareness (we're already inside parens and don't expect
  * further nesting in practice).
+ *
+ * `insideQuote` reflects whether the scan ended while still inside an
+ * unclosed `"` / `'` string. Callers use this to distinguish
+ * `ch "❘"` (cursor inside quoted value → string candidate list) from
+ * `ch ❘` (cursor at a whitespace value slot → enum candidates).
  */
-function tokenizeParenBody(inner: string): { tokens: string[]; trailingOpen: boolean } {
+function tokenizeParenBody(inner: string): {
+    tokens: string[];
+    trailingOpen: boolean;
+    insideQuote: boolean;
+} {
     const tokens: string[] = [];
     let buffer = '';
     let inQuote: '"' | "'" | null = null;
@@ -1014,7 +1137,7 @@ function tokenizeParenBody(inner: string): { tokens: string[]; trailingOpen: boo
     if (trailingOpen) {
         tokens.push(buffer);
     }
-    return { tokens, trailingOpen };
+    return { tokens, trailingOpen, insideQuote: inQuote !== null };
 }
 
 /**
@@ -1043,7 +1166,7 @@ function computeMaxParameterCount(def: PropertyDefinition): number {
  */
 function valueToCompletion(
     v: ParameterValueDefinition,
-    range: monaco.IRange,
+    range: CompletionRange,
     monacoApi: typeof monaco
 ): monaco.languages.CompletionItem {
     const insertText = v.snippet ?? v.name;

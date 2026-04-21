@@ -1,12 +1,13 @@
 import * as alphaTab from '@coderline/alphatab';
 import { scoreMetaData, staffMetaData } from '@coderline/alphatab-alphatex/definitions';
-import type { MetadataTagDefinition } from '@coderline/alphatab-alphatex/types';
+import type { MetadataTagDefinition, PropertyDefinition } from '@coderline/alphatab-alphatex/types';
 import { registerAlphaTexGrammar } from '@coderline/alphatab-monaco/alphatex';
 import { basicEditorLspIntegration } from '@coderline/alphatab-monaco/lsp';
 import { addTextMateGrammarSupport } from '@coderline/alphatab-monaco/textmate';
 import * as monaco from 'monaco-editor';
 // @ts-expect-error Monaco worker is provided by Vite
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import { collectChordIds } from './chord-registry';
 import {
     analyzePropertyValueContext,
     buildParenValueCompletions,
@@ -165,10 +166,14 @@ const supplementalLabels = new Set(
  * 回溯，否则会把 `{`、`)` 等结构符错误地吞进补全的 replace range 里，
  * 导致插入补全项时把 `{` 替换掉。
  *
+ * 引号 `"` / `'` 也必须是边界字符：在 `{ch "❘"}` 这种 chord 联动场景
+ * 下，光标位于两个引号之间，若不把 `"` 视作边界，向左扫描会把左引号
+ * 也纳入 replace 范围，接受候选后文本变成 `{ch Am"}`，把引号给吞了。
+ *
  * 反斜杠 `\` 不在此集合中 —— 它是 AlphaTex 命令前缀（`\tempo`），必须被
  * 纳入正在输入的单词范围，Monaco 才能按前缀做模糊匹配。
  */
-const WORD_BOUNDARY_CHARS = new Set([' ', '\t', '(', ')', '{', '}', '|', ',', '.']);
+const WORD_BOUNDARY_CHARS = new Set([' ', '\t', '(', ')', '{', '}', '|', ',', '.', '"', "'"]);
 
 /**
  * 从光标位置向前扫描，找到当前正在输入的"单词"的起始列号。
@@ -222,15 +227,52 @@ function enhanceCompletionResult(
     model: monaco.editor.ITextModel,
     position: monaco.Position
 ): monaco.languages.CompletionList {
-    const wordStartCol = findWordStartColumn(model, position);
+    // Math.max(1, ...) 防御：Monaco 列号 1-based，findWordStartColumn 在
+    // 极端边界（例如行首直接触发补全）理论上不会返回 <1，但显式夹取可避免
+    // 任何未来改动意外越界到 0 或负数，触发 Monaco 的范围回退默认逻辑。
+    const wordStartCol = Math.max(1, findWordStartColumn(model, position));
 
-    // 构建包含前缀的正确范围
-    const correctedRange = new monaco.Range(
-        position.lineNumber,
-        wordStartCol,
-        position.lineNumber,
-        position.column
-    );
+    // 构建 IInsertReplaceRange：显式告诉 Monaco `insert` 与 `replace`
+    // 两段 range，避免 Monaco 在只拿到单一 Range 时走默认 wordPattern
+    // 扩展逻辑 —— 该逻辑可能把 `{`、`\` 等 AlphaTex 结构符纳入 replace
+    // 区间，造成应用补全后向左覆盖一个字符的 bug（如 `{ch❘` 选中 `ch`
+    // 候选后 `{` 被替换为 `c`）。
+    //
+    // Monaco `CompletionItem` 类（suggest.js）对 IInsertReplaceRange 做了
+    // 严格校验：
+    //   this.isInvalid = … || completion.range.insert.startColumn
+    //                      !== completion.range.replace.startColumn;
+    // 即 `insert.startColumn` 必须与 `replace.startColumn` **完全一致**，
+    // 否则整个候选被标记为 invalid，控制台打印
+    //   "[suggest] IGNORE invalid completion item from undefined"
+    // 然后在 UI 中被默默过滤掉 —— 正是用户截图里"控制台有候选、编辑区
+    // 没有候选"的症状。
+    //
+    // 因此两段 range 必须共享同一个 `startColumn = wordStartCol`：
+    //   - replace: [wordStart, col)  覆盖用户已输入的前缀（如 `ch`）
+    //   - insert:  [wordStart, col)  与 replace 同形；我们没有"右侧 word
+    //                 残留"需要区分的场景，所以 end 也到光标即可
+    //
+    // 关于 insert/replace 的语义差异（VSCode/Monaco）：
+    //   - Insert mode：用户在右侧有残留（`ch❘aracter`）时，仅替换 insert
+    //     范围，保留光标右侧的 `aracter`
+    //   - Replace mode：将 replace 范围整体替换（通常会吃掉光标右侧 word）
+    //   AlphaTex 补全场景中用户几乎不会在 word 中间触发补全，两种模式
+    //   效果等价，因此 insert = replace 最稳妥。
+    const correctedRange: monaco.languages.CompletionItemRanges = {
+        insert: new monaco.Range(
+            position.lineNumber,
+            wordStartCol,
+            position.lineNumber,
+            position.column
+        ),
+        replace: new monaco.Range(
+            position.lineNumber,
+            wordStartCol,
+            position.lineNumber,
+            position.column
+        )
+    };
 
     // ── 属性块 / 括号参数列表内：接管补全列表 ──
     // 上游 LSP 的 createPropertiesCompletions 依赖 AST binaryNodeSearch 定位
@@ -245,6 +287,26 @@ function enhanceCompletionResult(
     // 下方既有路径，保证可降级。
     const propContext = analyzePropertyValueContext(model, position);
     if (propContext.kind === 'property-value' && propContext.currentProperty) {
+        // ── ch + insideQuote 特例：联动文档中已声明的 `\chord` 名称 ──
+        //
+        // 语法背景：`ch` 是 beat 级 property，形如 `{ch "Am"}` — 其引号
+        // 值是 **property-value**（不是 paren-value）。`analyzeBraceContext`
+        // 在命中到引号内光标时会把 `insideQuote` 透传过来，这里据此完全
+        // 接管候选列表（Q2.1 = 引号内触发 / Q2.3 = 全文 / Q2.4 = 正则）。
+        //
+        // 对非 `ch` 属性或引号外场景返回 null，逻辑透明地继续走通用的
+        // `buildPropertyValueCompletions`，不影响其他 property 的值补全。
+        const chordItems = buildChCompletionsIfApplicable(
+            propContext.currentProperty,
+            propContext.insideQuote === true,
+            model,
+            correctedRange
+        );
+        if (chordItems) {
+            result.suggestions = chordItems;
+            return result;
+        }
+
         const items = buildPropertyValueCompletions(
             propContext.currentProperty,
             correctedRange,
@@ -255,9 +317,14 @@ function enhanceCompletionResult(
             return result;
         }
         // items 为空（既无 values 也无 defaultValue）→ 降级到上游逻辑
-    } else if (propContext.kind === 'property-name' && propContext.nearestCommand) {
+    } else if (propContext.kind === 'property-name' && propContext.propertiesScope) {
+        // 使用 propertiesScope（统一来源）而非原先的 nearestCommand 字符串：
+        //   - 命令块（`\chord {...}`）的 scope 是 owner.properties
+        //   - beat-property 块（`(0.1 2.3){...}`）的 scope 是全局 beatProperties
+        // 两者在 analyzeBraceContext 已通过 resolveBracePropertyScope 归一化，
+        // 这里直接传 scope map，避免在 editor 层重复查表。
         const items = buildPropertyNameCompletions(
-            propContext.nearestCommand,
+            propContext.propertiesScope,
             correctedRange,
             monaco
         );
@@ -270,6 +337,10 @@ function enhanceCompletionResult(
         propContext.parenOwner &&
         propContext.valueIndex !== undefined
     ) {
+        // 注意：`ch` 属性的值在 AlphaTex 语法上永远是 property-value
+        // （brace 块内部的 `{ch "…"}`），不会进入 paren-value 分支。
+        // 因此此处无需再调用 buildChCompletionsIfApplicable —— 之前的
+        // chord 联动放在这里是无效死代码，已迁至 property-value 分支。
         const items = buildParenValueCompletions(
             propContext.parenOwner,
             propContext.valueIndex,
@@ -337,6 +408,84 @@ function resolveSuggestionLabel(
 ): string {
     const raw = suggestion.label;
     return typeof raw === 'string' ? raw : raw.label;
+}
+
+// ─── Chord completion (ch property → \chord name linkage) ────────────
+
+/**
+ * 判断 property 定义是否是 beat-level `ch`。
+ *
+ * `ch` 是 beat-property 块内的字符串型 property（`{ch "Am"}`），上游
+ * 定义只声明 name 是一个 String，没有枚举 `values`。默认走
+ * {@link buildPropertyValueCompletions} 只会得到一个 defaultValue
+ * 占位或完全空 —— 这里识别 `ch` 后接管候选生成，注入文档中已声明的
+ * `\chord` 名称。
+ *
+ * 注：从 `property-value` 分支调用 —— AlphaTex 语法上 `ch` 的值永远
+ * 是 property-value（`{ch "…"}`），不会出现在 paren-value 分支。
+ */
+function isBeatChProperty(def: PropertyDefinition): boolean {
+    return def.property === 'ch';
+}
+
+/**
+ * 构造 `ch "❘"` 光标位置的候选列表 —— 当且仅当命中 `ch` 属性且光标位于
+ * 引号内时返回非 null，其它情况返回 null 交回通用逻辑。
+ *
+ * 候选构造规则：
+ *   - 正常情况：返回文档中 `\chord ("name" …)` 声明的 name 列表（按声明
+ *     顺序，已去重）。
+ *   - 空列表兜底（Q2.2 = b）：返回单条 `CompletionItemKind.Issue` 提示
+ *     项，告知用户先声明 `\chord`，`insertText` 为空、`sortText: '\uFFFF'`
+ *     排在最末，不抢占默认占位符。
+ *
+ * @returns 候选列表或 null（表示不适用）
+ */
+function buildChCompletionsIfApplicable(
+    def: PropertyDefinition,
+    insideQuote: boolean,
+    model: monaco.editor.ITextModel,
+    range: monaco.languages.CompletionItemRanges
+): monaco.languages.CompletionItem[] | null {
+    if (!insideQuote || !isBeatChProperty(def)) {
+        return null;
+    }
+
+    const chordIds = collectChordIds(model);
+    if (chordIds.length === 0) {
+        // 空列表兜底：展示 Issue 图标引导用户先声明 \chord（Q-C = b）。
+        return [
+            {
+                label: '（未定义 \\chord，先用 \\chord ("name" …) 声明）',
+                kind: monaco.languages.CompletionItemKind.Issue,
+                insertText: '',
+                detail: '文档中尚未声明和弦',
+                documentation: {
+                    value:
+                        '使用 `\\chord ("Am" firstFret(1) …)` 声明和弦后，'
+                        + '此处会自动联动可选的和弦名称列表。',
+                    isTrusted: false,
+                    supportThemeIcons: false
+                },
+                // 排在最后，不抢占输入流
+                sortText: '\uFFFF',
+                // filterText 置空：避免 Monaco 尝试模糊匹配把整条隐掉
+                filterText: '',
+                range
+            }
+        ];
+    }
+
+    return chordIds.map<monaco.languages.CompletionItem>((name, idx) => ({
+        label: name,
+        kind: monaco.languages.CompletionItemKind.EnumMember,
+        insertText: name,
+        detail: 'Declared chord',
+        // sortText 按声明顺序，保证用户体验稳定：首次声明的 chord 排第一。
+        // 使用 6 位零填充避免 >999 时的字典序错位。
+        sortText: idx.toString().padStart(6, '0'),
+        range
+    }));
 }
 
 /**
