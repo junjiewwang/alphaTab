@@ -1,11 +1,16 @@
 import * as alphaTab from '@coderline/alphatab';
 import { cursorSync } from './cursor-sync';
+import { applyNumberedPatches } from './numbered-patches';
 import { dom, getActiveDocument, getDocumentById, setStatus, state } from './state';
 import type { WorkspaceDocument } from './types';
 import { escapeHtml, getErrorMessage, safeFileName } from './utils';
 import { persistWorkspace } from './workspace-storage';
 
 export function setupPreview(): void {
+    // 应用简谱渲染增强 patch（Ghost 可视化 + 时值横线 Bar 级对齐）。
+    // 必须在 AlphaTabApi 创建前调用，以便首次渲染即使用增强后的行为。
+    applyNumberedPatches();
+
     const api = new alphaTab.AlphaTabApi(dom.alphaTabRoot, {
         core: {
             file: undefined,

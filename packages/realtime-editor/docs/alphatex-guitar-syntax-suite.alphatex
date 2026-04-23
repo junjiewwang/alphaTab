@@ -21,7 +21,10 @@
 // triplet-feel/lyrics/chord annotations/dynamics/text/tuplets/rasgueado/barre
 // ============================================================
 \track "Rhythm Guitar" "Rhy." { color "#5B8FF9" defaultSystemsLayout 4 }
-\staff {score tabs}
+// `{score tabs numbered}` 同时开启五线谱、吉他六线谱、简谱三视图。
+// 由于启用了 numbered，下方的 `\lyrics` 会自动渲染在【简谱下方】以便与旋律对照
+// （而不是默认的 tab 谱上方）。详见 docs/lyrics-below-numbered-staff.md。
+\staff {score tabs numbered}
 \tuning (E4 B3 G3 D3 A2 E2) { label "Standard Tuning" }
 \capo 2
 \lyrics "Al -- pha -- Tex gui -- tar hand -- book now"
@@ -122,3 +125,29 @@ r r r r |
 0.2 0.2 0.2 0.2 |
 r r r r |
 r r r r |
+
+// ============================================================
+// Track 4: Numbered Showcase (appendix track)
+// 演示 realtime-editor 对 alphaTab 简谱渲染的两项增强：
+//   1. Ghost 音（`.g`）在简谱中显示为 `(数字)`，用于区分旋律音 / 过渡音；
+//   2. 低音点（低八度音）与常规音混排时，时值横线 Y 起点统一对齐。
+// 该 track 仅开启简谱视图，使用绝对音高语法（C4/G3 等）便于观察八度点。
+// 详见 docs/numbered-ghost-and-flag-alignment.md。
+// ============================================================
+\track "Numbered Showcase" "Num." { color "#16A085" defaultSystemsLayout 4 }
+\staff {numbered}
+.
+\ks C
+\ts 4 4
+\tempo 100
+:4
+C4 D4 E4 F4 |
+// Ghost（过渡音）演示：括号内的音为连接旋律的过渡音
+G4 A4.g B4.g C5 |
+// 低音点 + 常规音混排演示：无 patch 时 C3/D3 的时值横线比 C4/D4 更靠下
+:8
+C4 D4 E4 F4 G4 A4 B4 C5 |
+C3 D4 E4 C3 F4 C3 C3 G4 |
+// 综合演示：Ghost + 低音混排 + 十六分音符
+:16
+C4 D4.g E4 F4.g G4 A4.g B4 C5 C3 D4.g E4 C3 F4 G4.g A4 C3 |
