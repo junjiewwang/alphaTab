@@ -18,6 +18,7 @@ import {
     renderDefinitionMarkdown,
     renderExamplesOnly
 } from './completion-docs';
+import { formatAlphaTex } from './alphatex-formatter';
 import { dom, state } from './state';
 import { escapeHtml, load } from './utils';
 
@@ -897,6 +898,18 @@ export async function setupEditor(
     });
 
     await setupLspAlphaTexLanguageSupport(editor);
+
+    // ── AlphaTex 格式化 Provider ──
+    monaco.languages.registerDocumentFormattingEditProvider('alphatex', {
+        provideDocumentFormattingEdits(model) {
+            const formatted = formatAlphaTex(model.getValue());
+            return [{
+                range: model.getFullModelRange(),
+                text: formatted
+            }];
+        }
+    });
+
     state.editor = editor;
     refreshDiagnostics();
 }
