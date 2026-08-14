@@ -28,6 +28,12 @@ const LineKind = {
 } as const;
 type LineKind = (typeof LineKind)[keyof typeof LineKind];
 
+/** 单个小节 token：记录内容及其后是否跟随小节线 `|` */
+interface BarToken {
+    content: string;
+    hasBarLine: boolean;
+}
+
 /** 命令行缩进层级表：startsWith → indent level */
 const COMMAND_INDENT_MAP: [string, number][] = [
     ['\\track', 0],
@@ -69,7 +75,7 @@ export function formatAlphaTex(input: string): string {
 
     const result: string[] = [];
     // 当前段落内暂存的 bar 内容，积累到 BARS_PER_LINE 再写入
-    let barBuffer: string[] = [];
+    let barBuffer: BarToken[] = [];
     let indentLevel = 0;
 
     function flushBarBuffer(): void {
@@ -77,7 +83,9 @@ export function formatAlphaTex(input: string): string {
             return;
         }
         const prefix = ' '.repeat(indentLevel * INDENT_SIZE);
-        result.push(`${prefix}${barBuffer.join(' |')} |`);
+        // 仅在小节原本有 `|` 时补小节线，避免凭空新增
+        const line = barBuffer.map(token => (token.hasBarLine ? `${token.content} |` : token.content)).join(' ');
+        result.push(`${prefix}${line}`);
         barBuffer = [];
     }
 
@@ -106,7 +114,7 @@ export function formatAlphaTex(input: string): string {
                 // 解析当前行的 bar 内容
                 const bars = extractBars(trimmed);
                 for (const bar of bars) {
-                    barBuffer.push(` ${bar}`);
+                    barBuffer.push(bar);
                     if (barBuffer.length >= BARS_PER_LINE) {
                         flushBarBuffer();
                     }
@@ -161,13 +169,14 @@ function computeCommandIndent(line: string): number {
 }
 
 /**
- * 从一行中提取小节内容。
+ * 从一行中提取小节 token。
  * 以 `|` 分隔，每段折叠多余空格。
+ * 每个 token 记录其后是否跟随小节线 `|`，行尾残余（未闭合）标记为 `hasBarLine: false`。
  * 处理注：`|` 可能出现在字符串字面量中（如 {txt "a|b"}），
  * 这里用简单策略兼容：检测 `"` 配对后再按 `|` 分割。
  */
-function extractBars(line: string): string[] {
-    const bars: string[] = [];
+function extractBars(line: string): BarToken[] {
+    const bars: BarToken[] = [];
     let current = '';
     let inString = false;
 
@@ -179,7 +188,7 @@ function extractBars(line: string): string[] {
         } else if (ch === '|' && !inString) {
             const trimmed = current.trim().replace(/\s+/g, ' ');
             if (trimmed.length > 0) {
-                bars.push(trimmed);
+                bars.push({ content: trimmed, hasBarLine: true });
             }
             current = '';
         } else {
@@ -187,10 +196,10 @@ function extractBars(line: string): string[] {
         }
     }
 
-    // 尾部残余（不含 | 的部分，可能是不完整小节）
+    // 尾部残余（不含 | 的部分，可能是不完整小节，末节未闭合）
     const trimmed = current.trim().replace(/\s+/g, ' ');
     if (trimmed.length > 0) {
-        bars.push(trimmed);
+        bars.push({ content: trimmed, hasBarLine: false });
     }
 
     return bars;
